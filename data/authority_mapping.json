@@ -1,0 +1,331 @@
+[
+  {
+    "key": "ration",
+    "department": "Food & Civil Supplies Department",
+    "level": "Mandal",
+    "authority": "SPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "ration",
+        "ration card",
+        "pds",
+        "food grain",
+        "fair price shop",
+        "raashan"
+      ],
+      "te": [
+        "రాషన్"
+      ],
+      "hi": [
+        "राशन"
+      ],
+      "ta": [
+        "ரேஷன்"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "What is the current status of my ration card application?",
+        "What is the application reference number on file?",
+        "What are the pending requirements, if any?",
+        "What is the expected date of issue?",
+        "Who is the officer handling new ration card applications in my area?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  },
+  {
+    "key": "road",
+    "department": "Public Works Department / Municipality",
+    "level": "Mandal",
+    "authority": "SPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "road",
+        "pothole",
+        "highway",
+        "street",
+        "paving",
+        "construction",
+        "marga"
+      ],
+      "te": [
+        "రోడ్డు"
+      ],
+      "hi": [
+        "सड़क"
+      ],
+      "ta": [
+        "கோப்பு",
+        "சாலை"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "What is the total sanctioned budget for this road work?",
+        "What is the official project completion date?",
+        "What amount has been released and utilised so far?",
+        "Who is the contractor/agency responsible for execution?",
+        "What is the current physical status of the work?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  },
+  {
+    "key": "education",
+    "department": "Education Department",
+    "level": "District",
+    "authority": "SPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "school",
+        "education",
+        "teacher",
+        "midday meal",
+        "primary school",
+        "shiksha"
+      ],
+      "te": [
+        "బడి"
+      ],
+      "hi": [
+        "शिक्षा"
+      ],
+      "ta": [
+        "பள்ளி"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "What is the approved teacher strength versus the current working strength in this school?",
+        "What is the total budget allocated for school infrastructure development this financial year?",
+        "What is the status of basic amenities (drinking water, separate toilets for girls and boys)?",
+        "What is the quantity of midday meals sanctioned and served per week?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  },
+  {
+    "key": "property",
+    "department": "Registration & Stamps Department",
+    "level": "District",
+    "authority": "SPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "property",
+        "registration",
+        "stamp duty",
+        "land registration",
+        "deed"
+      ],
+      "te": [
+        "రిజిస్ట్రేషన్"
+      ],
+      "hi": [
+        "पंजीकरण"
+      ],
+      "ta": [
+        "பதிவு"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "What is the official fee and stamp duty structure for property registration in this zone?",
+        "What is the status of my property registration request submitted on the specified date?",
+        "What is the average timeline for issuing a registered deed copy after submission?",
+        "Who is the competent authority to report grievances regarding delayed registrations?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  },
+  {
+    "key": "pension",
+    "department": "Social Welfare Department / Pension Department",
+    "level": "Mandal",
+    "authority": "SPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "pension",
+        "old age pension",
+        "widow pension",
+        "disability pension",
+        "pension scheme"
+      ],
+      "te": [
+        "పెన్షన్"
+      ],
+      "hi": [
+        "पेंशन"
+      ],
+      "ta": [
+        "பென்ஷன்"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "On what date was my pension application received?",
+        "What is the current status of my application?",
+        "What are the reasons, if any, for the delay?",
+        "Which officer is responsible for clearing pending applications?",
+        "By what date is the pension expected to be sanctioned?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  },
+  {
+    "key": "aadhaar",
+    "department": "UIDAI (Unique Identification Authority of India)",
+    "level": "Central",
+    "authority": "CPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "aadhaar",
+        "uidai",
+        "aadhar",
+        "aadhaar card",
+        "biometric"
+      ],
+      "te": [
+        "ఆధార్"
+      ],
+      "hi": [
+        "आधार"
+      ],
+      "ta": [
+        "ஆதார்"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "What is the current status of my Aadhaar update/enrolment request?",
+        "What are the specific reasons for the delay in processing this request?",
+        "What is the escalation matrix for citizens whose Aadhaar updates are stuck beyond 30 days?",
+        "Who is the officer responsible for processing pending requests?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  },
+  {
+    "key": "passport",
+    "department": "Ministry of External Affairs / Passport Office",
+    "level": "Central",
+    "authority": "CPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "passport",
+        "visa",
+        "passport office",
+        "mea",
+        "mfa"
+      ],
+      "te": [
+        "పాస్‍‌పోర్ట్"
+      ],
+      "hi": [
+        "पारपत्र"
+      ],
+      "ta": [
+        "கடவுச்சீட்டு"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "What is the current status of my passport application?",
+        "On what date was my application received and verification initiated?",
+        "What are the specific reasons for the delay in issuing the passport?",
+        "By what date is the passport expected to be printed and dispatched?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  },
+  {
+    "key": "tax",
+    "department": "Income Tax Department",
+    "level": "Central",
+    "authority": "CPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "income tax",
+        "tax refund",
+        "itr",
+        "tax assessment"
+      ],
+      "te": [
+        "ఆదాయపు పన్ను"
+      ],
+      "hi": [
+        "आयकर"
+      ],
+      "ta": [
+        "வருமான வரி"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "What is the status of my income tax refund for the assessment year in question?",
+        "What is the reason for the delay in processing and releasing my refund?",
+        "Who is the assessing officer responsible for processing this refund request?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  },
+  {
+    "key": "railway",
+    "department": "Indian Railways",
+    "level": "Central",
+    "authority": "CPIO",
+    "aliases": [],
+    "priority": 1,
+    "keywords_by_lang": {
+      "en": [
+        "railway",
+        "irctc",
+        "train",
+        "railway station",
+        "railway ticket"
+      ],
+      "te": [
+        "రైల్వే"
+      ],
+      "hi": [
+        "रेलवे"
+      ],
+      "ta": [
+        "இரயில்வே"
+      ]
+    },
+    "questions_by_lang": {
+      "en": [
+        "What is the status of my complaint registered on the railway grievance portal?",
+        "What is the action taken report (ATR) on my complaint?",
+        "Who is the public grievance officer responsible for resolving ticket/reservation disputes?"
+      ],
+      "te": [],
+      "hi": []
+    }
+  }
+]

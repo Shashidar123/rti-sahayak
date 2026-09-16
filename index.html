@@ -1,0 +1,2790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RTI Sahayak — Voice RTI Assistant</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="static/rti-intent-guard.js"></script>
+    <script>
+        let AUTHORITY_MAPPING = {}; 
+        fetch('data/authority_mapping.json')
+            .then(res => res.json())
+            .then(data => {
+                AUTHORITY_MAPPING = Object.assign({}, data, AUTHORITY_MAPPING);
+            })
+            .catch(err => console.warn('Could not load authority mapping, using fallback', err));
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap');
+
+        :root {
+            --blue: #0B3D62;
+            --blue-deep: #072A45;
+            --blue-soft: #E7EEF3;
+            --saffron: #FF9933;
+            --saffron-soft: #FFEFD9;
+            --green: #1C7A3E;
+            --green-soft: #E3F2E7;
+            --paper: #FBF7EE;
+            --ink: #16213A;
+            --muted: #5C6B7A;
+            --line: #E4DCC8;
+            --white: #FFFFFF;
+            --radius: 14px;
+            --shadow: 0 10px 28px rgba(11, 61, 98, 0.14);
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            background: var(--paper);
+            color: var(--ink);
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+        .ui { font-family: 'Manrope', system-ui, sans-serif; }
+        button { font-family: inherit; }
+        :focus-visible { outline: 3px solid var(--saffron); outline-offset: 2px; }
+        
+        .app { max-width: 760px; margin: 0 auto; padding: 18px 16px 60px; }
+
+        .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 4px 18px; }
+        .brand { display: flex; align-items: center; gap: 10px; }
+        .brand-mark { width: 38px; height: 38px; border-radius: 50%; background: var(--blue); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: var(--shadow); }
+        .brand-mark svg { width: 20px; height: 20px; }
+        .brand-name { font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; }
+        .brand-sub { font-size: 0.72rem; color: var(--muted); margin-top: -2px; }
+        
+        select#langSelect {
+            appearance: none; border: 1.5px solid var(--line); background: var(--white); border-radius: 10px;
+            padding: 8px 30px 8px 12px; font-size: 0.88rem; font-weight: 600; color: var(--blue-deep); cursor: pointer;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0L5 6L10 0" fill="none" stroke="%230B3D62" stroke-width="1.5"/></svg>');
+            background-repeat: no-repeat; background-position: right 12px center;
+        }
+
+        .steptrail { display: flex; align-items: flex-start; justify-content: space-between; margin: 0 0 22px; padding: 0 4px; }
+        .step-node { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; position: relative; }
+        .step-node:not(:last-child)::after { content: ""; position: absolute; top: 15px; left: 50%; width: 100%; height: 2px; background: var(--line); z-index: 0; }
+        .step-node.done:not(:last-child)::after { background: var(--green); }
+        .step-dot { width: 30px; height: 30px; border-radius: 50%; background: var(--white); border: 2px dashed var(--line); display: flex; align-items: center; justify-content: center; font-size: 0.78rem; font-weight: 800; color: var(--muted); z-index: 1; transition: all .25s; }
+        .step-node.active .step-dot { border: 2px solid var(--saffron); color: var(--blue-deep); background: var(--saffron-soft); }
+        .step-node.done .step-dot { border: 2px solid var(--green); background: var(--green); color: var(--white); }
+        .step-label { font-size: 0.7rem; color: var(--muted); font-weight: 700; text-align: center; }
+        .step-node.active .step-label { color: var(--blue-deep); }
+
+        .panel { display: none; }
+        .panel.active { display: block; animation: fadein .35s ease; }
+        @keyframes fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .card { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--line); padding: 24px; }
+
+        .hero { text-align: center; padding: 6px 6px 26px; }
+        .hero h1 { font-size: 1.7rem; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.02em; line-height: 1.25; }
+        .hero p { color: var(--muted); margin: 0; font-size: 0.96rem; }
+        
+        .rti-intro { text-align: center; padding: 0 8px 20px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+        .rti-intro p { color: var(--ink); font-size: 0.92rem; line-height: 1.55; margin: 0 0 14px; }
+        
+        .rti-info-page .info-lead { color: var(--muted); font-size: 0.94rem; margin: 0 0 18px; line-height: 1.55; }
+        .rti-info-grid { display: grid; gap: 10px; margin-bottom: 20px; }
+        .rti-info-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; background: var(--blue-soft); border-radius: 10px; border: 1px solid var(--line); }
+        .rti-info-item .icon { flex-shrink: 0; width: 32px; height: 32px; border-radius: 8px; background: var(--white); display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+        .rti-info-item h3 { margin: 0 0 4px; font-size: 0.88rem; font-weight: 800; color: var(--blue-deep); }
+        .rti-info-item p { margin: 0; font-size: 0.8rem; color: var(--muted); line-height: 1.45; }
+        
+        .rti-info-note { background: var(--saffron-soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 0.82rem; color: var(--blue-deep); margin-bottom: 18px; line-height: 1.5; }
+
+        .mic-zone { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 22px 0 8px; }
+        .mic-ring { position: relative; width: 128px; height: 128px; display: flex; align-items: center; justify-content: center; }
+        .mic-pulse { position: absolute; inset: 0; border-radius: 50%; background: var(--saffron); opacity: 0; transform: scale(0.8); }
+        .mic-ring.recording .mic-pulse { animation: pulse 1.6s ease-out infinite; }
+        @keyframes pulse { 0% { opacity: 0.35; transform: scale(0.8); } 100% { opacity: 0; transform: scale(1.5); } }
+        .mic-btn { position: relative; width: 96px; height: 96px; border-radius: 50%; border: 3px dashed var(--blue-soft); background: var(--white); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: var(--shadow); transition: all .2s; z-index: 1; }
+        .mic-btn .inner { width: 74px; height: 74px; border-radius: 50%; background: var(--blue); display: flex; align-items: center; justify-content: center; transition: background .2s; }
+        .mic-btn svg { width: 30px; height: 30px; }
+        .mic-ring.recording .mic-btn { border-color: var(--saffron); }
+        .mic-ring.recording .mic-btn .inner { background: var(--saffron); }
+        .mic-btn:hover { transform: scale(1.03); }
+        .mic-status { font-size: 0.85rem; font-weight: 700; color: var(--blue-deep); min-height: 20px; }
+        .mic-timer { font-size: 0.78rem; color: var(--muted); }
+        
+        .transcript-box { width: 100%; min-height: 52px; background: var(--blue-soft); border-radius: 10px; padding: 12px 14px; font-size: 0.95rem; color: var(--ink); margin-top: 6px; }
+        .transcript-box:empty::before { content: "Your words will appear here as you speak…"; color: var(--muted); }
+        
+        .protocol-warning { background: #FFF9E6; border: 1.5px solid #FFE0B2; color: #B78103; padding: 14px; border-radius: 10px; margin: 12px 0; font-size: 0.84rem; line-height: 1.5; text-align: left; }
+        .protocol-warning strong { color: #9E6B00; }
+        
+        .fallback-label { font-size: 0.78rem; color: var(--muted); font-weight: 700; margin: 18px 0 6px; text-align: center; }
+        .textarea.fallback-input { width: 100%; border: 1.5px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 0.95rem; font-family: inherit; resize: vertical; min-height: 64px; color: var(--ink); }
+        
+        .row-actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+        .btn { border: none; border-radius: 10px; padding: 11px 20px; font-weight: 700; font-size: 0.9rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: transform .15s, opacity .15s; }
+        .btn:active { transform: scale(0.97); }
+        .btn-primary { background: var(--blue); color: var(--white); }
+        .btn-primary:hover { background: var(--blue-deep); }
+        .btn-ghost { background: var(--blue-soft); color: var(--blue-deep); }
+        .btn-ghost:hover { background: #dde9f0; }
+        .btn-outline { background: var(--white); color: var(--blue-deep); border: 1.5px solid var(--line); }
+        .btn-outline:hover { border-color: var(--blue); }
+        .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+        
+        .templates-head { margin: 34px 0 12px; text-align: center; }
+        .templates-head h2 { font-size: 1.05rem; margin: 0 0 4px; }
+        .templates-head p { font-size: 0.82rem; color: var(--muted); margin: 0; }
+        .template-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        @media(max-width:520px) { .template-grid { grid-template-columns: 1fr; } }
+        .template-card { text-align: left; background: var(--white); border: 1.5px solid var(--line); border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all .15s; }
+        .template-card:hover { border-color: var(--saffron); box-shadow: var(--shadow); transform: translateY(-1px); }
+        .template-card .t-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 3px; color: var(--blue-deep); }
+        .template-card .t-desc { font-size: 0.78rem; color: var(--muted); line-height: 1.4; }
+
+        .field-group { margin-bottom: 18px; }
+        .field-group label { display: block; font-size: 0.78rem; font-weight: 800; color: var(--blue-deep); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+        .field-group textarea, .field-group input, .field-group select { width: 100%; border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 0.93rem; font-family: inherit; color: var(--ink); background: var(--white); }
+        .field-group textarea { resize: vertical; min-height: 54px; }
+        .hint { font-size: 0.74rem; color: var(--muted); margin-top: 5px; }
+        
+        .doc-paper { background: var(--white); border: 1px solid var(--line); border-radius: 10px; padding: 24px 22px; white-space: pre-wrap; font-size: 0.93rem; line-height: 1.7; color: var(--ink); font-family: system-ui, -apple-system, sans-serif; }
+        .doc-watermark { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid var(--line); }
+        .doc-watermark span { font-size: 0.72rem; font-weight: 800; color: var(--saffron); text-transform: uppercase; letter-spacing: 0.05em; }
+        
+        .action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 18px; }
+        @media(max-width:480px) { .action-grid { grid-template-columns: repeat(2, 1fr); } }
+        .action-grid .btn { width: 100%; justify-content: center; padding: 10px 8px; font-size: 0.82rem; }
+        
+        .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--blue-soft); border-top-color: var(--blue); animation: spin 0.8s linear infinite; margin: 0 auto; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-box { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 50px 10px; color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+        .error-box { background: #FDEDEA; border: 1.5px solid #F3C6BB; color: #8A2E1B; border-radius: 10px; padding: 12px 14px; font-size: 0.85rem; margin-top: 14px; }
+        .disclaimer { text-align: center; font-size: 0.74rem; color: var(--muted); margin-top: 30px; padding: 0 10px; }
+        
+        @media print {
+            .topbar, .steptrail, .row-actions, .action-grid, .disclaimer, #step1, #step2, #rtiInfoPage, #loginPage { display: none !important; }
+            body { background: var(--white); }
+            .card { box-shadow: none; border: none; }
+        }
+
+        .profile-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--green-soft); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 0.82rem; color: var(--blue-deep); margin-bottom: 16px; }
+        .profile-banner button { background: none; border: none; color: var(--blue); font-weight: 800; font-size: 0.8rem; cursor: pointer; text-decoration: underline; flex-shrink: 0; }
+        .voice-warning { background: #FDEDEA; border: 1.5px solid #F3C6BB; color: #8A2E1B; border-radius: 10px; padding: 10px 14px; font-size: 0.82rem; margin-top: 10px; line-height: 1.5; text-align: left; }
+        /* ---------- DEMO VIDEO ---------- */
+        .demo-video-wrap {
+            position: relative;
+            border: 1.5px solid var(--line);
+            border-radius: 12px;
+            overflow: hidden;
+            background: #0B0B0B;
+            aspect-ratio: 16 / 9;
+        }
+        .demo-video-wrap video { display: block; width: 100%; height: 100%; object-fit: contain; background: #0B0B0B; }
+        .demo-video-missing {
+            position: absolute; inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 6px; text-align: center; padding: 20px;
+            background: var(--blue-soft); color: var(--blue-deep);
+        }
+        .demo-video-missing strong { font-size: .88rem; }
+        .demo-video-missing code { font-size: .74rem; background: var(--white); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+        .demo-video-missing p { margin: 0; font-size: .75rem; color: var(--muted); line-height: 1.45; max-width: 340px; }
+        .demo-video-wrap.is-missing .demo-video-missing { display: flex; }
+        .demo-video-wrap.is-missing video { visibility: hidden; }
+        .demo-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+        .demo-caption { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.45; flex: 1 1 200px; }
+
+        /* ---------- EXPANDED READ MORE / RTI GUIDE ---------- */
+        .guide-tabs {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 7px;
+            margin: 4px 0 20px;
+            padding: 5px;
+            background: var(--blue-soft);
+            border-radius: 12px;
+        }
+        .guide-tab {
+            border: none;
+            background: transparent;
+            color: var(--blue-deep);
+            padding: 9px 7px;
+            border-radius: 9px;
+            font-size: 0.76rem;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        .guide-tab.active {
+            background: var(--white);
+            box-shadow: 0 2px 8px rgba(11,61,98,.10);
+        }
+        .guide-view { display: none; }
+        .guide-view.active { display: block; animation: fadein .25s ease; }
+        .guide-section-head { margin: 4px 0 16px; }
+        .guide-section-head h2 { margin: 0 0 5px; font-size: 1.05rem; color: var(--blue-deep); }
+        .guide-section-head p { margin: 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }
+        .guide-note {
+            background: var(--blue-soft);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 12px 14px;
+            color: var(--blue-deep);
+            font-size: .8rem;
+            line-height: 1.5;
+            margin-top: 16px;
+        }
+        .guide-note.warning { background: #FFF9E6; border-color: #FFE0B2; }
+        .legal-note { margin-top: 18px; }
+        .state-search-wrap { margin-bottom: 12px; }
+        .state-search-wrap input {
+            width: 100%;
+            border: 1.5px solid var(--line);
+            border-radius: 10px;
+            padding: 11px 13px;
+            font: inherit;
+            font-size: .88rem;
+            color: var(--ink);
+            background: var(--white);
+        }
+        .state-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 9px;
+        }
+        .state-card {
+            border: 1.5px solid var(--line);
+            background: var(--white);
+            border-radius: 11px;
+            padding: 13px;
+            text-align: left;
+            cursor: pointer;
+            color: var(--ink);
+            transition: .15s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .state-card:hover { border-color: var(--saffron); transform: translateY(-1px); box-shadow: var(--shadow); }
+        .state-card-top { display: flex; justify-content: space-between; align-items: center; }
+        .state-flag { font-size: 1.05rem; }
+        .state-code { font-size: .68rem; font-weight: 800; color: var(--muted); letter-spacing: .06em; }
+        .state-card strong { font-size: .88rem; line-height: 1.3; color: var(--blue-deep); }
+        .state-type { font-size: .7rem; color: var(--muted); }
+        .state-fee { font-size: .75rem; font-weight: 800; margin-top: 3px; }
+        .state-card-cta { color: var(--blue); font-size: .72rem; font-weight: 800; margin-top: 4px; }
+        .guide-empty { padding: 20px; text-align: center; color: var(--muted); }
+        .state-details {
+            margin-top: 18px;
+            padding: 18px;
+            border-radius: 12px;
+            border: 1.5px solid var(--line);
+            background: #fffdf8;
+            animation: fadein .25s ease;
+        }
+        .state-detail-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 15px; }
+        .state-detail-kicker { font-size: .68rem; font-weight: 800; text-transform: uppercase; color: var(--saffron); letter-spacing: .06em; }
+        .state-detail-header h2 { margin: 3px 0 2px; color: var(--blue-deep); font-size: 1.2rem; }
+        .state-detail-header p { margin: 0; color: var(--muted); font-size: .78rem; }
+        .state-close-btn { padding: 7px 11px; font-size: .74rem; }
+        .state-detail-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 16px; }
+        .detail-stat { background: var(--white); border: 1px solid var(--line); border-radius: 9px; padding: 11px; }
+        .detail-stat span { display: block; font-size: .68rem; color: var(--muted); font-weight: 700; }
+        .detail-stat strong { display: block; color: var(--blue-deep); font-size: .9rem; margin: 3px 0; }
+        .detail-stat small { color: var(--muted); font-size: .66rem; line-height: 1.3; }
+        .guide-detail-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .guide-detail-columns h3 { font-size: .86rem; color: var(--blue-deep); margin: 0 0 7px; }
+        .guide-detail-columns ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: .76rem; line-height: 1.55; }
+        .official-resource-box { margin-top: 16px; background: var(--white); border: 1px solid var(--line); border-radius: 10px; padding: 13px; }
+        .official-resource-box h3 { margin: 0 0 8px; font-size: .86rem; color: var(--blue-deep); }
+        .resource-links { display: flex; flex-wrap: wrap; gap: 8px; }
+        .official-link { color: var(--blue); font-weight: 800; font-size: .75rem; text-decoration: none; }
+        .official-link:hover { text-decoration: underline; }
+        .resource-help { color: var(--muted); font-size: .72rem; margin: 9px 0 0; line-height: 1.45; }
+        .guide-info-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 9px; }
+        .guide-info-card { border: 1px solid var(--line); border-radius: 10px; padding: 13px; background: var(--white); }
+        .guide-info-card .guide-icon { font-size: 1.25rem; margin-bottom: 5px; }
+        .guide-info-card h3 { margin: 0 0 4px; font-size: .84rem; color: var(--blue-deep); }
+        .guide-info-card p { margin: 0 0 7px; color: var(--muted); font-size: .75rem; line-height: 1.45; }
+        .process-timeline { display: grid; gap: 9px; }
+        .process-step { display: flex; gap: 10px; align-items: flex-start; }
+        .process-step > span { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; background: var(--blue); color: white; display: flex; align-items: center; justify-content: center; font-size: .75rem; font-weight: 800; }
+        .process-step strong { color: var(--blue-deep); font-size: .82rem; }
+        .process-step p { margin: 2px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.45; }
+        @media(max-width:650px) {
+            .guide-tabs { grid-template-columns: repeat(2,1fr); }
+            .state-grid, .guide-info-grid, .guide-detail-columns { grid-template-columns: 1fr; }
+            .state-detail-grid { grid-template-columns: 1fr; }
+        }
+        @media(max-width:420px) {
+            .state-grid { grid-template-columns: 1fr; }
+            .state-detail-header { flex-direction: column; }
+            .state-close-btn { align-self: flex-end; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+
+        <!-- HEADER -->
+        <header class="topbar ui">
+            <div class="brand">
+                <div class="brand-mark">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#FFF" stroke-width="2" stroke-linecap="round">
+                        <path d="M12 1a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                        <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                        <line x1="12" y1="18" x2="12" y2="22"/>
+                        <line x1="9" y1="22" x2="15" y2="22"/>
+                    </svg>
+                </div>
+                <div>
+                    <div class="brand-name">RTI Sahayak</div>
+                    <div class="brand-sub ui" id="brandSub">Speak it. File it. Know your right to know.</div>
+                </div>
+            </div>
+            <select id="langSelect" aria-label="Choose language"></select>
+            <button id="profileBtn" aria-label="Your saved details" title="Your saved details" style="background:transparent;border:none;cursor:pointer;font-weight:700;color:var(--blue-deep);font-size:1.1rem;">👤</button>
+        </header>
+
+        <!-- STEP TRAIL -->
+        <nav class="steptrail ui" id="steptrail" aria-label="Progress"></nav>
+
+        <main>
+            <!-- LOGIN / USER DETAILS PAGE -->
+            <section id="loginPage" class="panel active">
+                <div class="card">
+                    <div class="hero">
+                        <h1 class="ui" id="loginTitle">Let's save your details — just once</h1>
+                        <p class="ui" id="loginSubtitle">Enter your name, address and contact details below. They'll be saved on this device and automatically added to every RTI you generate from now on.</p>
+                    </div>
+                    <div class="field-group">
+                        <label class="ui" id="loginLabelName">Your name</label>
+                        <input type="text" id="login_name" placeholder="Full name">
+                    </div>
+                    <div class="field-group">
+                        <label class="ui" id="loginLabelAddress">Your address</label>
+                        <textarea id="login_address" placeholder="House no., street, village/town, district, state, PIN code"></textarea>
+                    </div>
+                    <div class="field-group">
+                        <label class="ui" id="loginLabelMobile">Mobile number</label>
+                        <input type="text" id="login_mobile" placeholder="10-digit mobile number">
+                    </div>
+                    <div class="field-group">
+                        <label class="ui" id="loginLabelEmail">Email address <span style="font-weight:500;color:var(--muted);">(optional)</span></label>
+                        <input type="email" id="login_email" placeholder="you@example.com">
+                    </div>
+                    <div class="hint ui" id="loginHint">You can update these details any time using the 👤 icon at the top of the page.</div>
+                    <div class="row-actions">
+                        <button class="btn btn-outline ui" id="loginSkipBtn">Skip for now</button>
+                        <button class="btn btn-primary ui" id="loginContinueBtn">Save & continue →</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RTI INFO / READ MORE GUIDE -->
+            <section id="rtiInfoPage" class="panel rti-info-page">
+                <div class="card">
+                    <div class="hero">
+                        <h1 class="ui" id="rtiInfoTitle">RTI Guide — Know Before You File</h1>
+                        <p class="info-lead ui" id="rtiInfoLead">
+                            Learn the RTI process, State/UT-specific filing requirements, fees, documents,
+                            appeals and official resources before submitting an application.
+                        </p>
+                    </div>
+
+                    <div class="guide-tabs ui" id="guideTabs">
+                        <button class="guide-tab active" data-guide="topics">RTI Basics</button>
+                        <button class="guide-tab" data-guide="states">Select State / UT</button>
+                        <button class="guide-tab" data-guide="process">Filing Process</button>
+                        <button class="guide-tab" data-guide="documents">Documents &amp; Fees</button>
+                        <button class="guide-tab" data-guide="appeals">Appeals &amp; Help</button>
+                        <button class="guide-tab" data-guide="demo">▶ Demo Video</button>
+                    </div>
+
+                    <div id="guideTopics" class="guide-view active ui"></div>
+
+                    <div id="guideStates" class="guide-view ui">
+                        <div class="guide-section-head">
+                            <h2>🇮🇳 Select Your State or Union Territory</h2>
+                            <p>28 States and 8 Union Territories are covered. Select your jurisdiction to see the applicable filing guidance.</p>
+                        </div>
+                        <div class="state-search-wrap">
+                            <input id="stateSearchInput" type="search" placeholder="Search State or Union Territory…" aria-label="Search State or Union Territory">
+                        </div>
+                        <div class="state-grid" id="stateGrid"></div>
+                        <div id="stateDetails" class="state-details" style="display:none;"></div>
+                    </div>
+
+                    <div id="guideProcess" class="guide-view ui">
+                        <div class="guide-section-head">
+                            <h2>🧭 RTI Application — Timeline &amp; Stages</h2>
+                            <p>Use this general workflow after identifying the correct Public Authority.</p>
+                        </div>
+                        <div class="process-timeline">
+                            <div class="process-step"><span>1</span><div><strong>Identify the information</strong><p>Clearly describe the records or information you want.</p></div></div>
+                            <div class="process-step"><span>2</span><div><strong>Identify the Public Authority</strong><p>Choose the correct government department or public authority.</p></div></div>
+                            <div class="process-step"><span>3</span><div><strong>Find the PIO / APIO</strong><p>Use the authority's official RTI information to identify the appropriate officer.</p></div></div>
+                            <div class="process-step"><span>4</span><div><strong>Prepare the application</strong><p>Ask for existing records, documents, data, reports, orders or other information held by the authority.</p></div></div>
+                            <div class="process-step"><span>5</span><div><strong>Pay the applicable fee</strong><p>Check the State/UT and authority-specific fee and permitted payment mode.</p></div></div>
+                            <div class="process-step"><span>6</span><div><strong>Submit &amp; preserve proof</strong><p>Keep the acknowledgement, registration number, payment receipt and a copy of the application.</p></div></div>
+                            <div class="process-step"><span>7</span><div><strong>Response / next step</strong><p>If the response is missing, incomplete or unsatisfactory, consider the applicable first appeal and further remedies.</p></div></div>
+                        </div>
+                        <div class="guide-note warning">
+                            <strong>Central vs State:</strong> The Central RTI Online portal is intended for Central Government public authorities. Do not use it for a State Government public authority; use the applicable State/UT filing route instead.
+                        </div>
+                    </div>
+
+                    <div id="guideDocuments" class="guide-view ui">
+                        <div class="guide-section-head">
+                            <h2>📄 Documents, Fees &amp; BPL Guidance</h2>
+                            <p>Requirements vary by jurisdiction and public authority. Check the selected State/UT guide before filing.</p>
+                        </div>
+                        <div class="guide-info-grid">
+                            <div class="guide-info-card"><div class="guide-icon">🪪</div><h3>Applicant details</h3><p>Keep your name and contact/address details ready. Fill in any required fields before submission.</p></div>
+                            <div class="guide-info-card"><div class="guide-icon">💳</div><h3>Application fee</h3><p>Pay the applicable initial RTI application fee using the payment method permitted by the concerned jurisdiction/authority.</p></div>
+                            <div class="guide-info-card"><div class="guide-icon">📑</div><h3>Supporting documents</h3><p>Attach documents only when they are relevant or specifically required. An RTI request is primarily a request for information/records.</p></div>
+                            <div class="guide-info-card"><div class="guide-icon">♿</div><h3>BPL applicants</h3><p>Fee exemption may apply to eligible BPL applicants subject to the applicable rules. Keep the relevant BPL proof available where required.</p></div>
+                            <div class="guide-info-card"><div class="guide-icon">🧾</div><h3>Keep filing proof</h3><p>Save the application copy, payment proof, acknowledgement/registration number and postal or online submission details.</p></div>
+                            <div class="guide-info-card"><div class="guide-icon">⚠️</div><h3>Fees can have more than one component</h3><p>The initial application fee is not necessarily the only possible charge. Copying, inspection or other prescribed charges may apply.</p></div>
+                        </div>
+                        <div class="guide-note">
+                            <strong>Important:</strong> The fee shown on each State/UT card is the configured application fee in RTI Sahayak. Before payment, verify the current fee and payment method on the official authority/portal.
+                        </div>
+                    </div>
+
+                    <div id="guideAppeals" class="guide-view ui">
+                        <div class="guide-section-head">
+                            <h2>⚖️ Appeals, Lawyer Clarification &amp; Official Resources</h2>
+                        </div>
+                        <div class="guide-info-grid">
+                            <div class="guide-info-card"><div class="guide-icon">1️⃣</div><h3>First Appeal</h3><p>If the RTI response is not received or is not satisfactory, an applicant may use the applicable first-appeal mechanism before the designated First Appellate Authority.</p></div>
+                            <div class="guide-info-card"><div class="guide-icon">2️⃣</div><h3>Second Appeal / Complaint</h3><p>Further statutory remedies may be available before the appropriate Information Commission, depending on the circumstances.</p></div>
+                            <div class="guide-info-card"><div class="guide-icon">👤</div><h3>Do I need a lawyer?</h3><p>You generally do not need a lawyer to file an RTI application or use the normal RTI appeal process. Citizens can represent themselves.</p></div>
+                            <div class="guide-info-card"><div class="guide-icon">📜</div><h3>RTI Act, 2005</h3><p>Read the official Act, Rules and government RTI resources.</p><a class="official-link" href="https://rti.dopt.gov.in/" target="_blank" rel="noopener noreferrer">Open DoPT RTI Portal ↗</a></div>
+                            <div class="guide-info-card"><div class="guide-icon">🏛️</div><h3>State Information Commissions</h3><p>Use the official Central Information Commission directory to locate the relevant State Information Commission.</p><a class="official-link" href="https://cic.gov.in/links-to-state-information-commissions" target="_blank" rel="noopener noreferrer">State Commission Directory ↗</a></div>
+                            <div class="guide-info-card"><div class="guide-icon">💻</div><h3>Central RTI Online</h3><p>Use the Central portal only for participating Central Government public authorities.</p><a class="official-link" href="https://rtionline.gov.in/" target="_blank" rel="noopener noreferrer">Central RTI Online ↗</a></div>
+                        </div>
+                        <div class="guide-note">
+                            <strong>Examples are illustrative and non-exhaustive.</strong> Whether particular information can be disclosed depends on the records held by the public authority and applicable exemptions under the RTI Act.
+                        </div>
+                    </div>
+
+                    <div id="guideDemo" class="guide-view ui">
+                        <div class="guide-section-head">
+                            <h2>▶ Walkthrough — Updated RTI Guide</h2>
+                            <p>A short screen recording of the updated “Read More About RTI” section: State/UT selection, fees, filing process, documents and appeals.</p>
+                        </div>
+                        <div class="demo-video-wrap" id="demoVideoWrap">
+                            <video id="demoVideo" controls preload="metadata" playsinline poster="assets/rti-sahayak-demo-poster.jpg">
+                                <source src="assets/rti-sahayak-demo.mp4" type="video/mp4">
+                            </video>
+                            <div class="demo-video-missing">
+                                <strong>Demo video not found</strong>
+                                <p>Place the recording at <code>assets/rti-sahayak-demo.mp4</code>, next to <code>index.html</code>, and reload this page.</p>
+                            </div>
+                        </div>
+                        <div class="demo-meta">
+                            <p class="demo-caption">No audio narration is required — the recording is silent. Use the full-screen control for a closer look at the State/UT cards.</p>
+                            <a class="btn btn-outline" id="demoDownloadBtn" href="assets/rti-sahayak-demo.mp4" download>⬇ Download video</a>
+                        </div>
+                        <div class="guide-note">
+                            <strong>Reviewer note:</strong> The video is illustrative of the current prototype build. Fees, procedures and portal links shown in the recording must still be verified against the concerned public authority's official RTI information.
+                        </div>
+                    </div>
+
+                    <div class="guide-note legal-note ui">
+                        <strong>RTI Sahayak is a civic-tech prototype.</strong> Procedures, fees, payment modes, PIO details and portals can change. Always verify current requirements on the concerned public authority's official website/RTI portal before submitting or paying.
+                    </div>
+
+                    <div class="row-actions">
+                        <button class="btn btn-primary ui" id="rtiInfoBackBtn">← Back to home</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- STEP 1: INPUT -->
+            <section id="step1" class="panel">
+                <div class="card">
+                    <div class="hero">
+                        <h1 class="ui" id="step1Title">Speak your problem.<br>Generate an RTI instantly.</h1>
+                        <p class="ui" id="step1Subtitle">Create a Right to Information application in your own language — by voice, in a few minutes.</p>
+                    </div>
+                    <div class="rti-intro ui">
+                        <p id="rtiIntroText">The <strong>Right to Information (RTI)</strong> Act, 2005 empowers every Indian citizen to seek records, documents, and answers from government departments.</p>
+                        <button class="btn btn-outline ui" id="readMoreRtiBtn" type="button">Read more about RTI →</button>
+                        <button class="btn btn-outline ui" id="watchDemoBtn" type="button">▶ Watch demo</button>
+                    </div>
+
+                    <div class="mic-zone">
+                        <div class="mic-ring" id="micRing">
+                            <div class="mic-pulse"></div>
+                            <button class="mic-btn ui" id="micBtn" aria-label="Tap to speak">
+                                <div class="inner">
+                                    <svg id="micIcon" viewBox="0 0 24 24" fill="none" stroke="#FFF" stroke-width="2" stroke-linecap="round">
+                                        <path d="M12 1a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                        <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                                        <line x1="12" y1="18" x2="12" y2="22"/>
+                                        <line x1="9" y1="22" x2="15" y2="22"/>
+                                    </svg>
+                                </div>
+                            </button>
+                        </div>
+                        <div class="mic-status ui" id="micStatus">Tap the mic and describe your issue</div>
+                        <div class="mic-timer ui" id="micTimer"></div>
+                        <div id="protocolWarning" style="display:none;" class="ui"></div>
+                        <div class="transcript-box ui" id="liveTranscript" aria-live="polite"></div>
+
+                        <div class="fallback-label ui" id="fallbackLabel">Prefer typing? You can write it instead</div>
+                        <textarea class="fallback-input" id="fallbackInput" placeholder="e.g. The road sanctioned in my village two years ago is still not built…"></textarea>
+
+                        <div class="row-actions">
+                            <button class="btn btn-outline ui" id="tryAgainBtn">Clear</button>
+                            <button class="btn btn-primary ui" id="proceedBtn">Analyse my issue →</button>
+                        </div>
+                        <div id="step1Error"></div>
+                    </div>
+
+                    <div class="templates-head ui">
+                        <h2 id="templatesTitle">Or start from a ready-made template</h2>
+                        <p id="templatesSubtitle">Start with a pre-filled template, review the details, and generate your draft</p>
+                    </div>
+                    <div class="template-grid ui" id="templateGrid"></div>
+                </div>
+            </section>
+
+            <!-- STEP 2: VERIFY + EDIT -->
+            <section id="step2" class="panel">
+                <div class="card">
+                    <div id="step2Body">
+                        <div style="margin-bottom:16px;background:var(--saffron-soft);padding:10px 14px;border-radius:8px;border:1px solid #FFE0B2;font-size:0.85rem;color:var(--blue-deep);">
+                            ✏️ <strong>Review &amp; edit</strong> — The AI has summarised your issue and drafted questions. You can edit any field below before generating the final RTI.
+                        </div>
+
+                        <div id="profileBanner" class="profile-banner ui" style="display:none;">
+                            <span id="profileBannerText">👤 Your saved name, address and contact details have been filled in automatically below.</span>
+                            <button type="button" id="profileBannerEditBtn">Edit</button>
+                        </div>
+
+                        <div id="clarificationBox" style="display:none; background:#FFF3CD; border: 1.5px solid #FFEBAA; color:#856404; padding:18px; border-radius:10px; margin-bottom:18px;" class="ui">
+                            <h3 style="margin-top:0; font-size:1rem; font-weight:800; display: flex; align-items: center; gap: 8px;">🔍 Let's make your RTI stronger!</h3>
+                            <p id="clarificationQuestionText" style="font-size:0.88rem; margin-bottom:12px; font-weight:600; line-height: 1.45;"></p>
+                            <textarea id="clarificationAnswer" placeholder="Type your answer here..." style="width:100%; border:1.5px solid var(--line); border-radius:8px; padding:8px 10px; font-size:0.9rem; margin-bottom:10px; resize: vertical; min-height: 54px;"></textarea>
+                            <div class="row-actions" style="margin-top:0; justify-content: flex-start;">
+                                <button class="btn btn-primary ui" id="submitClarificationBtn" style="padding:8px 14px; font-size:0.8rem;">Update Details</button>
+                            </div>
+                        </div>
+
+                        <div id="clarificationConfirmBox" style="display:none; background:#E7F3EC; border: 1.5px solid #BFE3CC; color:#155724; padding:18px; border-radius:10px; margin-bottom:18px;" class="ui">
+                            <h3 id="confirmBoxTitle" style="margin-top:0; font-size:1rem; font-weight:800;">📝 Please confirm your issue summary</h3>
+                            <div id="confirmSummaryText" style="font-size:0.88rem; line-height:1.6; margin-bottom:14px; white-space:pre-wrap; background:var(--white); border:1px solid var(--line); border-radius:8px; padding:12px;"></div>
+                            <div class="row-actions" style="justify-content: flex-start; margin-top:0;">
+                                <button class="btn btn-outline ui" id="confirmReadAloudBtn" type="button">🔊 Read aloud</button>
+                            </div>
+                            <div id="confirmVoiceWarning"></div>
+                            <div id="confirmYesNoLabel" style="margin:14px 0 6px; font-weight:700;">Is this correct?</div>
+                            <div class="row-actions" style="justify-content: flex-start; margin-top:0;">
+                                <button class="btn btn-primary ui" id="confirmYesBtn" type="button">Yes</button>
+                                <button class="btn btn-outline ui" id="confirmNoBtn" type="button">No</button>
+                            </div>
+                        </div>
+
+                        <div id="step2FieldsSection">
+                            <div class="field-group">
+                                <label class="ui" id="labelName">Your name <span style="font-weight:500;color:var(--muted);">(optional)</span></label>
+                                <input type="text" id="f_name" placeholder="Leave blank if you prefer to fill by hand later">
+                            </div>
+                            <div class="field-group">
+                                <label class="ui" id="labelAddress">Your address <span style="font-weight:500;color:var(--muted);">(optional)</span></label>
+                                <textarea id="f_address" placeholder="Leave blank if you prefer to fill by hand later" style="min-height:72px;"></textarea>
+                                <div class="hint ui" id="hintAddress">If left empty, name and address lines on the final draft will remain blank.</div>
+                            </div>
+                            <div class="field-group">
+                                <label class="ui" id="labelMobile">Mobile number <span style="font-weight:500;color:var(--muted);">(optional)</span></label>
+                                <input type="text" id="f_mobile" placeholder="10-digit mobile number">
+                            </div>
+                            <div class="field-group">
+                                <label class="ui" id="labelEmail">Email address <span style="font-weight:500;color:var(--muted);">(optional)</span></label>
+                                <input type="email" id="f_email" placeholder="you@example.com">
+                            </div>
+                            <div class="field-group">
+                                <label class="ui" id="labelSummary">Issue summary <span style="font-weight:500;color:var(--muted);">(AI-generated — edit if needed)</span></label>
+                                <textarea id="f_summary" style="min-height:80px;"></textarea>
+                                <button class="btn btn-outline ui" id="refineGrammarBtn" type="button" style="margin-top:8px; padding:6px 12px; font-size:0.8rem; background: var(--blue-soft); border-color: var(--line);">✨ Polish Grammar & Align</button>
+                                <span id="refineGrammarStatus" style="font-size:0.78rem; font-weight:700; margin-left: 10px;"></span>
+                            </div>
+                            <div class="field-group">
+                                <label class="ui" id="labelDepartment">Detected department <span style="font-weight:500;color:var(--muted);">(AI-mapped)</span></label>
+                                <input type="text" id="f_department">
+                            </div>
+                            <div class="field-group">
+                                <label class="ui" id="labelLevel">Government level</label>
+                                <select id="f_level">
+                                    <option value="Village">Village</option>
+                                    <option value="Mandal">Mandal</option>
+                                    <option value="District">District</option>
+                                    <option value="State">State</option>
+                                    <option value="Central">Central</option>
+                                </select>
+                            </div>
+                            <div class="field-group">
+                                <label class="ui" id="labelTarget">RTI Filing Target</label>
+                                <input type="text" id="f_target" readonly style="background: var(--blue-soft); font-weight: 700; color: var(--blue-deep);">
+                                <div class="hint ui" id="hintTarget">Automatically mapped to SPIO (State) or CPIO (Central) based on the department jurisdiction.</div>
+                            </div>
+                            <div class="field-group">
+                                <label class="ui" id="labelQuestions">Information to request (one per line) <span style="font-weight:500;color:var(--muted);">(AI-generated — edit freely)</span></label>
+                                <textarea id="f_questions" style="min-height:140px;"></textarea>
+                                <div class="hint ui" id="hintQuestions">Edit, add, or remove lines — these become the numbered RTI questions.</div>
+                            </div>
+                            <div class="row-actions">
+                                <button class="btn btn-outline ui" id="backTo1Btn">← Back</button>
+                                <button class="btn btn-primary ui" id="genDraftBtn">Generate RTI draft →</button>
+                            </div>
+                        </div>
+                        <div id="step2Error"></div>
+                    </div>
+                    <div id="step2Loading" class="loading-box" style="display:none;">
+                        <div class="spinner"></div>
+                        <div id="step2LoadingText">Reading your complaint and identifying the right department…</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- STEP 3: DRAFT -->
+            <section id="step3" class="panel">
+                <div class="card">
+                    <div id="step3Loading" class="loading-box">
+                        <div class="spinner"></div>
+                        <div class="ui" id="step3LoadingText">Drafting your RTI application…</div>
+                    </div>
+                    <div id="step3Body" style="display:none;">
+                        <div class="doc-paper" id="draftDocument">
+                            <div class="doc-watermark"><span id="docWatermark">RTI Act, 2005 — Draft</span><span id="docMeta"></span></div>
+                            <div id="draftText"></div>
+                        </div>
+                        <div class="action-grid ui">
+                            <button class="btn btn-ghost" id="readAloudBtn">🔊 Read aloud</button>
+                            <button class="btn btn-ghost" id="copyBtn">📋 Copy</button>
+                            <button class="btn btn-ghost" id="printBtn">🖨️ Print</button>
+                            <button class="btn btn-ghost" id="pdfBtn">⬇️ PDF</button>
+                            <button class="btn btn-ghost" id="docBtn">⬇️ DOCX</button>
+                            <button class="btn btn-ghost" id="shareBtn">📤 Share</button>
+                        </div>
+                        <div id="step3VoiceWarning"></div>
+                        <div class="row-actions">
+                            <button class="btn btn-outline ui" id="backTo2Btn">← Edit details</button>
+                            <button class="btn btn-primary ui" id="restartBtn">Generate another RTI</button>
+                        </div>
+                        <div id="step3Error"></div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <p class="disclaimer ui" id="disclaimer">Prototype demo for academic / civic-tech purposes. Drafts are AI-generated — please review before filing, and fill in your name, address and signature by hand. Not affiliated with any government department.</p>
+    </div>
+
+    <!-- Custom Modal for Non-RTI Issues -->
+    <div id="nonRtiModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:center; justify-content:center; padding:16px;">
+        <div class="card" style="max-width:500px; width:100%; animation: fadein 0.3s ease; text-align:center;">
+            <div style="font-size:3rem; margin-bottom:12px;">⚠️</div>
+            <h2 class="ui" style="color:#8A2E1B; font-weight:800; margin-top:0;">Not an RTI Issue</h2>
+            <p id="nonRtiExplanation" class="ui" style="color:var(--muted); font-size:0.92rem; line-height:1.55; margin-bottom:20px;"></p>
+            <button class="btn btn-primary ui" id="closeNonRtiModalBtn">I understand, edit my complaint</button>
+        </div>
+    </div>
+
+    <script>
+        // ================================================================
+        //  GLOBAL CONFIGURATION
+        // ================================================================
+
+        // >>> REPLACE THIS WITH YOUR CLOUD RUN URL ONCE DEPLOYED <<<
+        // (e.g. "https://rti-backend-abcxyz.a.run.app")
+        const BACKEND_URL ="https://rti-backend-492852755578.asia-south1.run.app"; 
+
+        // ---------- LANGUAGES ----------
+        const LANGS = [
+            { code: 'en-IN', name: 'English' },
+            { code: 'hi-IN', name: 'Hindi (हिंदी)' },
+            { code: 'te-IN', name: 'Telugu (తెలుగు)' }
+        ];
+
+        const LEVEL_KEYS = ['Village', 'Mandal', 'District', 'State', 'Central'];
+
+        const I18N = {
+            en: {
+                brandSub: 'Speak it. File it. Know your right to know.',
+                stepDescribe: 'Describe', stepVerify: 'Verify', stepDraft: 'Draft & Finish',
+                loginTitle: 'Let\'s save your details — just once',
+                loginSubtitle: 'Enter your name, address and contact details below. They\'ll be saved on this device and automatically added to every RTI you generate from now on — so you can simply print, sign and submit.',
+                loginLabelName: 'Your name', loginLabelAddress: 'Your address', loginLabelMobile: 'Mobile number',
+                loginLabelEmail: 'Email address <span style="font-weight:500;color:var(--muted);">(optional)</span>',
+                loginHint: 'You can update these details any time using the 👤 icon at the top of the page.',
+                loginSkip: 'Skip for now', loginContinue: 'Save & continue →',
+                profileBannerText: '👤 Your saved name, address and contact details have been filled in automatically below.',
+                profileBannerEdit: 'Edit',
+                rtiInfoTitle: 'RTI Guide — Know Before You File',
+                rtiInfoLead: 'Learn the RTI process, State/UT-specific filing requirements, fees, documents, appeals and official resources before submitting an application.',
+                rtiInfoNote: '<strong>Note:</strong> Some personal information and matters of national security may be exempt under Section 8 of the RTI Act. You can still request the non-exempt portions of any record.',
+                rtiInfoBack: '← Back to home',
+                step1Title: 'Speak your problem.<br>Generate an RTI instantly.',
+                step1Subtitle: 'Create a Right to Information application in your own language — by voice, in a few minutes.',
+                rtiIntroText: 'The <strong>Right to Information (RTI)</strong> Act, 2005 empowers every Indian citizen to seek records, documents, and answers from government departments — from road works, pensions, and hospital services to budgets, tenders, and policy decisions.',
+                readMoreRti: 'Read more about RTI →',
+                watchDemo: '▶ Watch demo',
+                micTap: 'Tap the mic and describe your issue',
+                micListening: 'Listening… tap again to stop',
+                micNoSupport: 'Voice input not supported in this browser — please type below',
+                micBlocked: 'Microphone blocked. Chrome restricts voice input on file:// pages. Please serve this page from localhost.',
+                micDenied: 'Microphone permission denied. Please allow microphone access in your browser settings.',
+                micUnavailable: 'Speech recognition service is not available (common in Brave browser or if offline) — please type below.',
+                micError: 'Could not access microphone — try typing below',
+                micFail: 'Microphone error — please type below instead',
+                fallbackLabel: 'Prefer typing? You can write it instead',
+                fallbackPlaceholder: 'e.g. The road sanctioned in my village two years ago is still not built…',
+                clearBtn: 'Clear', proceedBtn: 'Analyse my issue →',
+                templatesTitle: 'Or start from a ready-made template',
+                templatesSubtitle: 'Start with a pre-filled template, review the details, and generate your draft',
+                labelName: 'Your name <span style="font-weight:500;color:var(--muted);">(optional)</span>',
+                labelAddress: 'Your address <span style="font-weight:500;color:var(--muted);">(optional)</span>',
+                placeholderName: 'Leave blank if you prefer to fill by hand later',
+                placeholderAddress: 'Leave blank if you prefer to fill by hand later',
+                hintAddress: 'If left empty, name and address lines on the final draft will remain blank.',
+                labelSummary: 'Issue summary <span style="font-weight:500;color:var(--muted);">(AI-generated — edit if needed)</span>',
+                labelSummaryPlain: 'Issue summary',
+                labelDepartment: 'Detected department <span style="font-weight:500;color:var(--muted);">(AI-mapped)</span>',
+                labelDepartmentPlain: 'Detected department',
+                labelLevel: 'Government level',
+                labelTarget: 'RTI Filing Target',
+                hintTarget: 'Automatically mapped to SPIO (State) or CPIO (Central) based on the department jurisdiction.',
+                labelQuestions: 'Information to request (one per line) <span style="font-weight:500;color:var(--muted);">(AI-generated — edit freely)</span>',
+                labelQuestionsPlain: 'Information to request',
+                hintQuestions: 'Edit, add, or remove lines — these become the numbered RTI questions.',
+                backBtn: '← Back', genDraftBtn: 'Generate RTI draft →',
+                step2Loading: 'Reading your complaint and identifying the right department…',
+                step3Loading: 'Drafting your RTI application…',
+                docWatermark: 'RTI Act, 2005 — Draft',
+                readAloud: '🔊 Read aloud', readAloudStop: '⏸ Stop',
+                copyBtn: '📋 Copy', copied: '✅ Copied', printBtn: '🖨️ Print',
+                pdfBtn: '⬇️ PDF', pdfPreparing: '⏳ Preparing…',
+                docBtn: '⬇️ DOCX', shareBtn: '📤 Share', shareCopied: '📋 Copied to share',
+                backTo2Btn: '← Edit details', restartBtn: 'Go to Home',
+                disclaimer: 'Prototype demo for academic / civic-tech purposes. Drafts are AI-generated — please review before filing, and fill in your name, address and signature by hand. Not affiliated with any government department.',
+                levels: { Village: 'Village', Mandal: 'Mandal', District: 'District', State: 'State', Central: 'Central' },
+                spio: 'State Public Information Officer (SPIO)', cpio: 'Central Public Information Officer (CPIO)',
+                errNoComplaint: 'Please speak or type your issue first.',
+                errStep2Fields: 'Please make sure the summary and at least one question are filled in.',
+                errAnalyse: 'Could not analyse the complaint right now. You can fill the fields in manually below and continue.',
+                errDraft: 'Could not generate the draft right now. Please try again in a moment.',
+                errPdf: 'Could not create the PDF in this browser. Try Print → Save as PDF instead.',
+                offlineNote: 'ℹ️ Served in Offline Mode: Pre-filled with verified standard template.',
+                retryBtn: 'Retry',
+                intentContinueAnyway: 'Continue anyway →',
+                clarificationPlaceholder: 'Type your answer here...',
+                confirmBoxTitle: '📝 Please confirm your issue summary',
+                confirmYesNoLabel: 'Is this correct? Would you like to proceed?',
+                confirmYes: 'Yes, proceed →', confirmNo: 'No, let me clarify again',
+                clarificationAskAgain: 'No problem — please share more details about your issue so we can refine the RTI draft further.',
+                voiceNotAvailable: 'A voice for this language was not found on your device/browser, so playback may skip or mispronounce some words.'
+            },
+            hi: {
+                brandSub: 'बोलें। दाखिल करें। जानने का अधिकार जानें।',
+                stepDescribe: 'वर्णन', stepVerify: 'सत्यापन', stepDraft: 'मसूदा व समापन',
+                loginTitle: 'अपनी जानकारी सिर्फ़ एक बार सहेजें',
+                loginSubtitle: 'नीचे अपना नाम, पता और संपर्क विवरण भरें। यह इस डिवाइस पर सहेजा जाएगा और अब से हर RTI में अपने आप जुड़ जाएगा — ताकि आप सीधे प्रिंट, हस्ताक्षर और दाखिल कर सकें।',
+                loginLabelName: 'आपका नाम', loginLabelAddress: 'आपका पता', loginLabelMobile: 'मोबाइल नंबर',
+                loginLabelEmail: 'ईमेल पता <span style="font-weight:500;color:var(--muted);">(वैकल्पिक)</span>',
+                loginHint: 'आप ऊपर दिए 👤 आइकॉन से इन्हें कभी भी बदल सकते हैं।',
+                loginSkip: 'अभी छोड़ें', loginContinue: 'सहेजें और आगे बढ़ें →',
+                profileBannerText: '👤 आपका सहेजा गया नाम, पता और संपर्क विवरण नीचे अपने आप भर दिया गया है।',
+                profileBannerEdit: 'संपादित करें',
+                rtiInfoTitle: 'RTI मार्गदर्शिका — आवेदन से पहले जानें',
+                rtiInfoLead: 'आवेदन जमा करने से पहले RTI प्रक्रिया, राज्य/संघ राज्य क्षेत्र के अनुसार आवश्यकताएँ, शुल्क, दस्तावेज़, अपील और आधिकारिक संसाधनों की जानकारी लें।',
+                rtiInfoNote: '<strong>नोट:</strong> कुछ व्यक्तिगत जानकारी और राष्ट्रीय सुरक्षा के मामले RTI अधिनियम की धारा 8 के तहत मुक्त हो सकते हैं। आप किसी भी रिकॉर्ड के गैर-मुक्त हिस्से का अनुरोध कर सकते हैं।',
+                rtiInfoBack: '← होम पर वापस',
+                step1Title: 'अपनी समस्या बोलें।<br>तुरंत RTI बनाएं।',
+                step1Subtitle: 'अपनी भाषा में सूचना का अधिकार आवेदन बनाएं — आवाज़ से, कुछ मिनटों में।',
+                rtiIntroText: '<strong>सूचना का अधिकार (RTI)</strong> अधिनियम, 2005 हर भारतीय नागरिक को सरकारी विभागों से रिकॉर्ड, दस्तावेज़ और जवाब मांगने का अधिकार देता है — सड़क कार्य, पेंशन, अस्पताल सेवाएं, बजट, निविदा और नीति निर्णय।',
+                readMoreRti: 'RTI के बारे में और पढ़ें →',
+                watchDemo: '▶ डेमो देखें',
+                micTap: 'माइक टैप करें और अपनी समस्या बताएं',
+                micListening: 'सुन रहा है… रोकने के लिए फिर टैप करें',
+                micNoSupport: 'इस ब्राउज़र में आवाज़ इनपुट उपलब्ध नहीं — नीचे टाइप करें',
+                micBlocked: 'माइक्रोफ़ोन ब्लॉक है। file:// पेज पर Chrome आवाज़ इनपुट प्रतिबंधित करता है। localhost से खोलें।',
+                micDenied: 'माइक्रोफ़ोन अनुमति अस्वीकृत। ब्राउज़र सेटिंग्स में अनुमति दें।',
+                micUnavailable: 'स्पीच रिकग्निशन उपलब्ध नहीं (Brave या ऑफ़लाइन में सामान्य) — नीचे टाइप करें।',
+                micError: 'माइक्रोफ़ोन एक्सेस नहीं हो सका — नीचे टाइप करें',
+                micFail: 'माइक्रोफ़ोन त्रुटि — नीचे टाइप करें',
+                fallbackLabel: 'टाइप करना चाहते हैं? यहाँ लिख सकते हैं',
+                fallbackPlaceholder: 'उदा. मेरे गाँव में दो साल पहले स्वीकृत सड़क अभी तक नहीं बनी…',
+                clearBtn: 'साफ़ करें', proceedBtn: 'मेरी समस्या विश्लेषण करें →',
+                templatesTitle: 'या तैयार टेम्पलेट से शुरू करें',
+                templatesSubtitle: 'पूर्व-भरी टेम्पलेट से शुरू करें, विवरण देखें और मसूदा बनाएं',
+                labelName: 'आपका नाम <span style="font-weight:500;color:var(--muted);">(वैकल्पिक)</span>',
+                labelAddress: 'आपका पता <span style="font-weight:500;color:var(--muted);">(वैकल्पिक)</span>',
+                placeholderName: 'हाथ से भरना चाहें तो खाली छोड़ें',
+                placeholderAddress: 'हाथ से भरना चाहें तो खाली छोड़ें',
+                hintAddress: 'खाली छोड़ने पर अंतिम मसूदे में नाम और पता रिक्त रहेंगे।',
+                labelSummary: 'समस्या का सारांश <span style="font-weight:500;color:var(--muted);">(AI-जनित — आवश्यकतानुसार संपादित करें)</span>',
+                labelSummaryPlain: 'समस्या का सारांश',
+                labelDepartment: 'पहचाना गया विभाग <span style="font-weight:500;color:var(--muted);">(AI-मैप्ड)</span>',
+                labelDepartmentPlain: 'पहचाना गया विभाग',
+                labelLevel: 'सरकारी स्तर',
+                labelTarget: 'RTI दाखिल लक्ष्य',
+                hintTarget: 'विभाग के अधिकार क्षेत्र के आधार पर स्वचालित SPIO (राज्य) या CPIO (केंद्र) मैपिंग।',
+                labelQuestions: 'मांगी जाने वाली जानकारी (प्रति पंक्ति एक) <span style="font-weight:500;color:var(--muted);">(AI-जनित — स्वतंत्र रूप से संपादित करें)</span>',
+                labelQuestionsPlain: 'मांगी जाने वाली जानकारी',
+                hintQuestions: 'पंक्तियाँ संपादित करें — ये RTI प्रश्नों बनेंगी।',
+                backBtn: '← वापस', genDraftBtn: 'RTI मसूदा बनाएं →',
+                step2Loading: 'आपकी शिकायत पढ़ रहे हैं और सही विभाग पहचान रहे हैं…',
+                step3Loading: 'आपका RTI आवेदन लिख रहे हैं…',
+                docWatermark: 'RTI अधिनियम, 2005 — मसूदा',
+                readAloud: '🔊 ज़ोर से पढ़ें', readAloudStop: '⏸ रोकें',
+                copyBtn: '📋 कॉपी', copied: '✅ कॉपी हो गया', printBtn: '🖨️ प्रिंट',
+                pdfBtn: '⬇️ PDF', pdfPreparing: '⏳ तैयार हो रहा…',
+                docBtn: '⬇️ DOCX', shareBtn: '📤 साझा करें', shareCopied: '📋 साझा करने के लिए कॉपी',
+                backTo2Btn: '← विवरण संपादित करें', restartBtn: 'होम पर जाएं',
+                disclaimer: 'शैक्षणिक / नागरिक-तकनीक प्रोटोटाइप। मसूदे AI-जनित हैं — दाखिल करने से पहले जाँचें और नाम, पता व हस्ताक्षर हाथ से भरें। किसी सरकारी विभाग से संबद्ध नहीं।',
+                levels: { Village: 'गाँव', Mandal: 'मंडल', District: 'ज़िला', State: 'राज्य', Central: 'केंद्र' },
+                spio: 'राज्य लोक सूचना अधिकारी (SPIO)', cpio: 'केंद्रीय लोक सूचना अधिकारी (CPIO)',
+                errNoComplaint: 'पहले अपनी समस्या बोलें या टाइप करें।',
+                errStep2Fields: 'सारांश और कम से कम एक प्रश्न भरें।',
+                errAnalyse: 'अभी शिकायत विश्लेषण नहीं हो सका। नीचे फ़ील्ड मैन्युअल भरें और जारी रखें।',
+                errDraft: 'अभी मसूदा नहीं बन सका। कृपया पुनः प्रयास करें।',
+                errPdf: 'इस ब्राउज़र में PDF नहीं बन सका। प्रिंट → PDF के रूप में सहेजें।',
+                offlineNote: 'ℹ️ ऑफ़लाइन मोड: सत्यापित टेम्पलेट से पूर्व-भरा।',
+                retryBtn: 'पुनः प्रयास',
+                intentContinueAnyway: 'फिर भी जारी रखें →',
+                clarificationPlaceholder: 'यहाँ अपना उत्तर टाइप करें...',
+                confirmBoxTitle: '📝 कृपया अपनी समस्या के सारांश की पुष्टि करें',
+                confirmYesNoLabel: 'क्या यह सही है? क्या आप आगे बढ़ना चाहते हैं?',
+                confirmYes: 'हाँ, आगे बढ़ें →', confirmNo: 'नहीं, मुझे फिर से स्पष्ट करने दें',
+                clarificationAskAgain: 'कोई बात नहीं — कृपया अपनी समस्या के बारे में और जानकारी साझा करें ताकि हम RTI मसूदे को और बेहतर बना सकें।',
+                voiceNotAvailable: 'आपके डिवाइस/ब्राउज़र पर इस भाषा की आवाज़ उपलब्ध नहीं है, इसलिए कुछ शब्द छूट सकते हैं या गलत उच्चारण हो सकता है।'
+            },
+            te: {
+                brandSub: 'మాట్లాడండి. దాఖలు చేయండి. తెలుసుకునే హక్కు తెలుసుకోండి.',
+                stepDescribe: 'వివరించండి', stepVerify: 'ధృవీకరించండి', stepDraft: 'మసూదా & పూర్తి',
+                loginTitle: 'మీ వివరాలను ఒక్కసారి మాత్రమే సేవ్ చేయండి',
+                loginSubtitle: 'కింద మీ పేరు, చిరునామా మరియు సంప్రదింపు వివరాలు నమోదు చేయండి. ఇవి ఈ పరికరంలో సేవ్ చేయబడతాయి మరియు ఇకపై సృష్టించే ప్రతి RTI లో స్వయంచాలకంగా జోడించబడతాయి — తద్వారా మీరు నేరుగా ప్రింట్ చేసి, సంతకం చేసి దాఖలు చేయవచ్చు.',
+                loginLabelName: 'మీ పేరు', loginLabelAddress: 'మీ చిరునామా', loginLabelMobile: 'మొబైల్ నంబర్',
+                loginLabelEmail: 'ఇమెయిల్ చిరునామా <span style="font-weight:500;color:var(--muted);">(ఐచ్ఛికం)</span>',
+                loginHint: 'పైన ఉన్న 👤 ఐకాన్ ఉపయోగించి మీరు వీటిని ఎప్పుడైనా మార్చవచ్చు.',
+                loginSkip: 'ఇప్పుడు దాటవేయండి', loginContinue: 'సేవ్ చేసి కొనసాగండి →',
+                profileBannerText: '👤 మీ సేవ్ చేసిన పేరు, చిరునామా మరియు సంప్రదింపు వివరాలు కింద స్వయంచాలకంగా నింపబడ్డాయి.',
+                profileBannerEdit: 'సవరించండి',
+                rtiInfoTitle: 'RTI మార్గదర్శిని — దాఖలు చేసే ముందు తెలుసుకోండి',
+                rtiInfoLead: 'దరఖాస్తు సమర్పించే ముందు RTI ప్రక్రియ, రాష్ట్రం/UT నిబంధనలు, ఫీజు, పత్రాలు, అప్పీళ్లు మరియు అధికారిక వనరుల గురించి తెలుసుకోండి.',
+                rtiInfoNote: '<strong>గమనిక:</strong> కొంత వ్యక్తిగత సమాచారం మరియు జాతీయ భద్రతా విషయాలు RTI చట్టం సెక్షన్ 8 కింద మినహాయింపు కావచ్చు. మిగిలిన భాగాన్ని కోరవచ్చు.',
+                rtiInfoBack: '← హోమ్‌కు తిరిగి',
+                step1Title: 'మీ సమస్య చెప్పండి.<br>తక్షణమే RTI సృష్టించండి.',
+                step1Subtitle: 'మీ భాషలో సమాచార హక్కు అప్లికేషన్ సృష్టించండి — వాయిస్ ద్వారా, కొన్ని నిమిషాల్లో.',
+                rtiIntroText: '<strong>సమాచార హక్కు (RTI)</strong> చట్టం, 2005 ప్రతి భారతీయ పౌరుడికి ప్రభుత్వ శాఖల నుండి రికార్డులు, పత్రాలు మరియు సమాధానాలు కోరే అధికారం ఇస్తుంది — రోడ్డు పనులు, పెన్షన్లు, ఆసుపత్రి sేవలు, బడ్జెట్లు, టెండర్లు మరియు విధాన నిర్ణయాలు.',
+                readMoreRti: 'RTI గురించి మరింత చదవండి →',
+                watchDemo: '▶ డెమో చూడండి',
+                micTap: 'మైక్ నొక్కి మీ సమస్య వివరించండి',
+                micListening: 'వింటోంది… నిలిపేందుకు మళ్ళీ నొక్కండి',
+                micNoSupport: 'ఈ బ్రౌజర్‌లో వాయిస్ ఇన్‌పుట్ అందుబాటులో లేదు — కింద టైప్ చేయండి',
+                micBlocked: 'మైక్రోఫోన్ బ్లాక్. file:// పేజీలో Chrome వాయిస్ ఇన్‌పుట్ నిషేధిస్తుంది. localhost నుండి తెరవండి.',
+                micDenied: 'మైక్రోఫోన్ అనుమతి నిరాకరించబడింది. బ్రౌజర్ సెట్టింగ్‌లలో అనుమతి ఇవ్వండి.',
+                micUnavailable: 'స్పీచ్ రికగ్నిషన్ అందుబాటులో లేదు (Brave లేదా ఆఫ్‌లైన్ లో సాధారణం) — కింద టైప్ చేయండి.',
+                micError: 'మైక్రోఫోన్ యాక్సెస్ కాలేదు — కింద టైప్ చేయండి',
+                micFail: 'మైక్రోఫోన్ లోపం — కింద టైప్ చేయండి',
+                fallbackLabel: 'టైప్ చేయాలనుకుంటున్నారా? ఇక్కడ రాయండి',
+                fallbackPlaceholder: 'ఉదా. మా గ్రామంలో రెండు సంవత్సరాల క్రితం మంజూరు చేసిన రోడ్డు ఇంకా పూర్తి కాలేదు…',
+                clearBtn: 'క్లియర్', proceedBtn: 'నా సమస్య విశ్లేషించండి →',
+                templatesTitle: 'లేదా సిద్ధమైన టెంప్లేట్ నుండి ప్రారంభించండి',
+                templatesSubtitle: 'పూర్తి టెంప్లేట్‌తో ప్రారంభించి, వివరాలు సమీక్షించి మసూదా సృష్టించండి',
+                labelName: 'మీ పేరు <span style="font-weight:500;color:var(--muted);">(ఐచ్ఛికం)</span>',
+                labelAddress: 'మీ చిరునామా <span style="font-weight:500;color:var(--muted);">(ఐచ్ఛికం)</span>',
+                placeholderName: 'చేతితో భరించాలనుకుంటే ఖాళీ వదిలేయండి',
+                placeholderAddress: 'చేతితో భరించాలనుకుంటే ఖాళీ వదిలేయండి',
+                hintAddress: 'ఖాళీ వదిలేస్తే చివరి మసూదాలో పేరు మరియు చిరునామా ఖాళీగా ఉంటాయి.',
+                labelSummary: 'సమస్య సారాంశం <span style="font-weight:500;color:var(--muted);">(AI-జనితం — అవసరమైతే సవరించండి)</span>',
+                labelSummaryPlain: 'సమస్య సారాంశం',
+                labelDepartment: 'గుర్తించిన శాఖ <span style="font-weight:500;color:var(--muted);">(AI-మ్యాప్ చేయబడింది)</span>',
+                labelDepartmentPlain: 'గుర్తించిన శాఖ',
+                labelLevel: 'ప్రభుత్వ స్థాయి',
+                labelTarget: 'RTI దాఖలు లక్ష్యం',
+                hintTarget: 'శాఖ అధికార పరిధి ఆధారంగా SPIO (రాష్ట్ర) లేదా CPIO (కేంద్ర) స్వయంచాలక మ్యాపింగ్.',
+                labelQuestions: 'అభ్యర్థించిన సమాచారం (ఒక పంక్తిలో ఒకటి) <span style="font-weight:500;color:var(--muted);">(AI-జనితం — స్వేచ్ఛగా సవరించండి)</span>',
+                labelQuestionsPlain: 'అభ్యర్థించిన సమాచారం',
+                hintQuestions: 'పంక్తులను సవరించండి — ఇవి RTI ప్రశ్నలు అవుతాయి.',
+                backBtn: '← వెనుక', genDraftBtn: 'RTI మసూదా సృష్టించండి →',
+                step2Loading: 'మీ ఫిర్యాదు చదివి సరైన శాఖ గుర్తిస్తోంది…',
+                step3Loading: 'మీ RTI అప్లికేషన్ రాస్తోంది…',
+                docWatermark: 'RTI చట్టం, 2005 — మసూదా',
+                readAloud: '🔊 బిగ్గరగా చదవండి', readAloudStop: '⏸ నిలిపేయండి',
+                copyBtn: '📋 కాపీ', copied: '✅ కాపీ చేయబడింది', printBtn: '🖨️ ప్రింట్',
+                pdfBtn: '⬇️ PDF', pdfPreparing: '⏳ సిద్ధం చేస్తోంది…',
+                docBtn: '⬇️ DOCX', shareBtn: '📤 షేర్', shareCopied: '📋 షేర్ చేయడానికి కాపీ',
+                backTo2Btn: '← వివరాలు సవరించండి', restartBtn: 'హోమ్‌కు వెళ్ళండి',
+                disclaimer: 'విద్యా / పౌర-టెక్ ప్రోటోటైప్. మసూదాలు AI-జనితం — దాఖలు చేయడానికి ముందు సమీక్షించండి, పేరు, చిరునామా మరియు సంతకం చేతితో భరించండి. ఏ ప్రభుత్వ శాఖకు చెందినది కాదు.',
+                levels: { Village: 'గ్రామం', Mandal: 'మండలం', District: 'జిల్లా', State: 'రాష్ట్రం', Central: 'కేంద్రం' },
+                spio: 'రాష్ట్ర పబ్లిక్ ఇన్ఫర్మేషన్ ఆఫీసర్ (SPIO)', cpio: 'కేంద్ర పబ్లిక్ ఇన్ఫర్మేషన్ ఆఫీసర్ (CPIO)',
+                errNoComplaint: 'ముందుగా మీ సమస్య మాట్లాడండి లేదా టైప్ చేయండి.',
+                errStep2Fields: 'సారాంశం మరియు కనీసం ఒక ప్రశ్న భరించండి.',
+                errAnalyse: 'ఇప్పుడు ఫిర్యాదు విశ్లేషణ కాలేదు. కింద ఫీల్డ్‌లు మాన్యువల్ భరించి కొనసాగండి.',
+                errDraft: 'ఇప్పుడు మసూదా సృష్టించలేకపోయాం. మళ్ళీ ప్రయత్నించండి.',
+                errPdf: 'ఈ బ్రౌజర్‌లో PDF సృష్టించలేకపోయాం. ప్రింట్ → PDF గా సేవ్ చేయండి.',
+                offlineNote: 'ℹ️ ఆఫ్‌లైన్ మోడ్: ధృవీకరించిన టెంప్లేట్ నుండి పూర్తి చేయబడింది.',
+                retryBtn: 'మళ్ళీ ప్రయత్నించండి',
+                intentContinueAnyway: 'అయినా కొనసాగించండి →',
+                clarificationPlaceholder: 'మీ సమాధానం ఇక్కడ టైప్ చేయండి...',
+                confirmBoxTitle: '📝 దయచేసి మీ సమస్య సారాంశాన్ని నిర్ధారించండి',
+                confirmYesNoLabel: 'ఇది సరైనదేనా? మీరు కొనసాగించాలనుకుంటున్నారా?',
+                confirmYes: 'అవును, కొనసాగించండి →', confirmNo: 'లేదు, మళ్ళీ స్పష్టం చేస్తాను',
+                clarificationAskAgain: 'పర్వాలేదు — మీ సమస్య గురించి మరింత వివరాలు తెలియజేయండి, తద్వారా మేము RTI మసూదాను మరింత మెరుగుపరచవచ్చు.',
+                voiceNotAvailable: 'మీ పరికరం/బ్రౌజర్‌లో ఈ భాషకు వాయిస్ దొరకలేదు, కాబట్టి కొన్ని పదాలు వినిపించకపోవచ్చు లేదా తప్పుగా ఉచ్చరించవచ్చు.'
+            }
+        };
+
+        // ---------- HELPERS ----------
+        function langKey() {
+            const k = (state.lang && state.lang.code) ? state.lang.code.split('-')[0] : 'en';
+            return I18N[k] ? k : 'en';
+        }
+
+        function t(key) {
+            const L = I18N[langKey()];
+            return (L && L[key]) || I18N.en[key] || key;
+        }
+
+        function getTargetOfficer(level) {
+            return level === 'Central' ? t('cpio') : t('spio');
+        }
+
+        function showError(containerId, msg) {
+            document.getElementById(containerId).innerHTML = `<div class="error-box">⚠️ ${msg}</div>`;
+        }
+
+        function clearError(containerId) {
+            document.getElementById(containerId).innerHTML = '';
+        }
+
+        function flashLabel(id, text) {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            const old = btn.textContent;
+            btn.textContent = text;
+            setTimeout(() => { btn.textContent = old; }, 1600);
+        }
+
+        function friendlyApiErrorMessage() {
+            const msgs = {
+                en: 'Our AI backend is temporarily busy or unreachable — please try again in a moment.',
+                hi: 'हमारा AI सर्वर अभी व्यस्त है — कृपया कुछ देर बाद फिर प्रयास करें।',
+                te: 'మా AI సర్వర్ ప్రస్తుతం బిజీగా ఉంది — దయచేసి కొద్దిసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి.'
+            };
+            return msgs[langKey()] || msgs.en;
+        }
+
+        function neutralizeComplaintText(text) {
+            if (!text) return text;
+            return text
+                .replace(/please\s+(let me know|inform me|tell me)[^.?!]*[.?!]?/gi, '')
+                .replace(/when will (it|they|this)\s+be\s+fixed\??/gi, '')
+                .replace(/\s{2,}/g, ' ')
+                .trim();
+        }
+
+        // ---------- SPEECH SYNTHESIS VOICE HELPERS ----------
+        function getVoicesAsync() {
+            return new Promise(resolve => {
+                let voices = speechSynthesis.getVoices();
+                if (voices && voices.length) { resolve(voices); return; }
+                const handler = () => { resolve(speechSynthesis.getVoices()); };
+                speechSynthesis.onvoiceschanged = handler;
+                setTimeout(() => resolve(speechSynthesis.getVoices()), 1200);
+            });
+        }
+
+        function findVoiceForLang(voices, langCode) {
+            if (!voices || !voices.length) return null;
+            return voices.find(v => v.lang === langCode) ||
+                   voices.find(v => v.lang && v.lang.toLowerCase().startsWith(langCode.split('-')[0].toLowerCase())) ||
+                   null;
+        }
+
+        async function speakWithWarning(text, langCode, btnEl, onEndCb, warningContainerId) {
+            if (!text || !('speechSynthesis' in window)) return;
+            if (warningContainerId) clearError(warningContainerId);
+
+            const voices = await getVoicesAsync();
+            const match = findVoiceForLang(voices, langCode);
+
+            if (!match && !langCode.startsWith('en')) {
+                if (warningContainerId) {
+                    document.getElementById(warningContainerId).innerHTML =
+                        `<div class="voice-warning">⚠️ ${t('voiceNotAvailable')}</div>`;
+                }
+                if (onEndCb) onEndCb();
+                return;
+            }
+
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.lang = langCode;
+            if (match) utter.voice = match;
+            utter.onend = () => { if (onEndCb) onEndCb(); };
+            utter.onerror = () => { if (onEndCb) onEndCb(); };
+            speechSynthesis.speak(utter);
+        }
+
+        // ---------- USER PROFILE (persisted applicant details) ----------
+        function getUserProfile() {
+            try { return JSON.parse(localStorage.getItem('rti_user_profile') || 'null'); } catch (_) { return null; }
+        }
+
+        function saveUserProfile(profile) {
+            try { localStorage.setItem('rti_user_profile', JSON.stringify(profile)); } catch (_) {}
+        }
+
+        function hasSavedProfile() {
+            const p = getUserProfile();
+            return !!(p && (p.name || p.address || p.mobile || p.email));
+        }
+
+        function populateApplicantFieldsFromProfile() {
+            const p = getUserProfile();
+            const banner = document.getElementById('profileBanner');
+            if (!p) {
+                if (banner) banner.style.display = 'none';
+                return;
+            }
+            document.getElementById('f_name').value = p.name || '';
+            document.getElementById('f_address').value = p.address || '';
+            document.getElementById('f_mobile').value = p.mobile || '';
+            document.getElementById('f_email').value = p.email || '';
+            if (banner) banner.style.display = (p.name || p.address || p.mobile || p.email) ? 'flex' : 'none';
+        }
+
+        // ---------- STATE ----------
+        let savedLangCode;
+        try { savedLangCode = localStorage.getItem('rti_lang'); } catch (_) { savedLangCode = null; }
+        const resolvedLang = LANGS.find(l => l.code === savedLangCode) || LANGS.find(l => l.code === 'en-IN') || LANGS[0];
+
+        let state = {
+            lang: resolvedLang,
+            currentStep: 1,
+            recognizing: false,
+            finalTranscript: '',
+            timerSeconds: 0,
+            timerHandle: null,
+            recognition: null,
+            analysis: null,
+            draft: null,
+            speaking: false,
+            confirmSpeaking: false,
+            onRtiInfoPage: false,
+            onProfilePage: false,
+            returnAfterProfile: 1,
+            originalComplaint: ''
+        };
+
+        // ---------- SEQUENTIAL DELAY & RETRY WRAPPER ----------
+        let lastApiCallTime = 0;
+        const MIN_API_INTERVAL_MS = 3000;
+
+        async function fetchWithRetry(url, options) {
+            const maxRetries = 3;
+            const retryDelayMs = 3500;
+            let lastResponse = null;
+
+            for (let i = 0; i <= maxRetries; i++) {
+                const now = Date.now();
+                const timeSinceLastCall = now - lastApiCallTime;
+                if (lastApiCallTime > 0 && timeSinceLastCall < MIN_API_INTERVAL_MS) {
+                    await new Promise(resolve => setTimeout(resolve, MIN_API_INTERVAL_MS - timeSinceLastCall));
+                }
+
+                try {
+                    const resp = await fetch(url, options);
+                    lastResponse = resp;
+                    lastApiCallTime = Date.now(); 
+
+                    if (resp.status === 429 || resp.status === 503) {
+                        if (i < maxRetries) {
+                            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+                            continue;
+                        }
+                    }
+                    return resp;
+                } catch (err) {
+                    lastApiCallTime = Date.now();
+                    if (i < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+                        continue;
+                    }
+                    throw err;
+                }
+            }
+            return lastResponse;
+        }
+
+        // ---------- AUTHORITY MAPPING ----------
+        AUTHORITY_MAPPING = {
+            streetlight: {
+                keywords: ['street light', 'streetlight', 'street lamp', 'road light', 'pole light', 'lamp post', 'स्ट्रीट लाइट', 'स्ट्रीटलाइट', 'बत्ती', 'వీధి దీపం', 'స్ట్రీట్ లైట్'],
+                department: 'Municipal Administration Department (Electrical / Street Lighting Section)',
+                level: 'Village',
+                questions: [
+                    'Please provide a certified copy of the maintenance and repair logbook for the street lights in the specified area.',
+                    'Please provide a certified copy of the complaint register showing complaints logged for this location and the corresponding action taken reports.',
+                    'Please provide a certified copy of the documented inspection reports for the street lighting infrastructure in this ward/area.',
+                    'Please provide a certified copy of the budget allocation and utilization statement for street light maintenance in this area for the current financial year.'
+                ]
+            },
+            ration: {
+                keywords: ['ration', 'ration card', 'pds', 'food grain', 'fair price shop', 'raashan', 'राशन', 'రాషన్', 'రేషన్'],
+                department: 'Food & Civil Supplies Department',
+                level: 'Mandal',
+                questions: [
+                    'Please provide a certified copy of the inward register or digital log showing the receipt and current status of my ration card application.',
+                    'Please provide a certified copy of the complete file notings related to the processing of my application.',
+                    'Please provide a certified copy of the citizen\'s charter specifying the official timeline for processing new ration cards or corrections.',
+                    'Please provide a certified copy of the documented reasons on record for the delay in processing my application beyond the stipulated timeline.'
+                ]
+            },
+            road: {
+                keywords: ['road', 'pothole', 'highway', 'paving', 'construction', 'marga', 'सड़क', 'రోడ్డు', 'சாலை'],
+                department: 'Public Works Department / Municipality',
+                level: 'Mandal',
+                questions: [
+                    'Please provide a certified copy of the administrative sanction letter and the final work order issued for this road construction.',
+                    'Please provide a certified copy of the Measurement Book (MB) and the Running Account (RA) bills submitted by the contractor so far.',
+                    'Please provide a certified copy of all quality inspection reports and material testing reports for this project.',
+                    'Please provide a certified copy of any show-cause notices or official correspondence issued to the contractor regarding the delay in work.'
+                ]
+            },
+            pension: {
+                keywords: ['pension', 'old age pension', 'widow pension', 'disability pension', 'pension scheme', 'पेंशन', 'பென்ชั่న', 'పెన్షన్'],
+                department: 'Social Welfare Department / Pension Department',
+                level: 'Mandal',
+                questions: [
+                    'Please provide a certified copy of the official file notings showing the daily movement and current status of my pension application.',
+                    'Please provide a certified copy of the dispatch/outward register if my application has been forwarded to a higher authority.',
+                    'Please provide a certified copy of the documented reasons on record for withholding or delaying the approval of my pension.',
+                    'Please provide a certified copy of the government guidelines specifying the maximum time limit for processing such pension applications.'
+                ]
+            },
+            electricity: {
+                keywords: ['electricity', 'power cut', 'electricity bill', 'meter', 'discom', 'transco', 'bijli', 'बिजली', 'కరెంట్', 'மின்'],
+                department: 'State Electricity Department / Discom',
+                level: 'Mandal',
+                questions: [
+                    'Please provide a certified copy of the application register showing the receipt and processing status of my connection request/complaint.',
+                    'Please provide a certified copy of the field feasibility report or inspection report filed by the lineman/engineer regarding this matter.',
+                    'Please provide a certified copy of the file notings detailing the reasons on record for the delay in providing the connection or resolving the complaint.',
+                    'Please provide a certified copy of the official timeline prescribed for resolving such issues as per the Electricity Supply Code.'
+                ]
+            },
+            water: {
+                keywords: ['water supply', 'drinking water', 'water bill', 'water pipeline', 'paani', 'पानी', 'నీరు', 'తణ్ణీర్'],
+                department: 'Water Board / Municipality / Local Body',
+                level: 'Mandal',
+                questions: [
+                    'Please provide a certified copy of the official water supply schedule or roster mandated for our area.',
+                    'Please provide a certified copy of the logbook for the local water pumping station/reservoir serving this area for the past 30 days.',
+                    'Please provide a certified copy of the complaint register showing grievances regarding water supply in this area and the corresponding action taken reports.',
+                    'Please provide a certified copy of the maintenance records for the main supply pipelines feeding this locality.'
+                ]
+            },
+            mgnrega: {
+                keywords: ['mgnrega', 'nrega', 'job card', 'wage', 'muster roll', 'मनरेगा', 'ఉపాధి హామీ'],
+                department: 'Rural Development / Panchayat Raj Department',
+                level: 'Mandal',
+                questions: [
+                    'Please provide a certified copy of the muster roll for my Job Card for the current financial year.',
+                    'Please provide a certified copy of the exact reason documented on record for the delay in the payment of my MGNREGA wages.',
+                    'Please provide a certified copy of the Fund Transfer Order (FTO) generated for my wage payment.',
+                    'Please provide a certified copy of the official work allocation register showing dates work was allocated against my Job Card in the last 6 months.'
+                ]
+            },
+            default: {
+                department: 'Public Information Officer / General Administration',
+                level: 'Mandal',
+                questions: [
+                    'Please provide a certified copy of the file notings showing the movement and current status of my application/complaint.',
+                    'Please provide a certified copy of the Action Taken Report (ATR) generated in response to my grievance.',
+                    'Please provide a certified copy of the documented reasons on record for the delay in resolving this issue.',
+                    'Please provide a certified copy of the citizen\'s charter or official guidelines specifying the maximum time limit to resolve such matters.'
+                ]
+            }
+        };
+
+        function detectAuthorityFromText(text) {
+            if (!text) return null;
+            const lower = text.toLowerCase();
+            for (const key in AUTHORITY_MAPPING) {
+                if (key === 'default') continue;
+                const item = AUTHORITY_MAPPING[key];
+                for (const kw of item.keywords) {
+                    if (lower.includes(kw.toLowerCase())) {
+                        return item;
+                    }
+                }
+            }
+            return null;
+        }
+
+        // ---------- TEMPLATES ----------
+        const TEMPLATES = [{
+            title: 'Road Construction Status', desc: 'Sanctioned road work delayed or incomplete', department: 'Panchayat Raj / Municipal Administration Department', level: 'Mandal',
+            summary: 'The road construction work sanctioned for our area has not been completed as per schedule.',
+            questions: [ 'Please provide a certified copy of the administrative sanction letter and work order.', 'Please provide a certified copy of the Measurement Book (MB) and running bills submitted by the contractor.', 'Please provide a certified copy of the quality inspection reports.', 'Please provide a certified copy of the file notings detailing the reasons for the delay.' ]
+        }, {
+            title: 'Pension Application Status', desc: 'Old-age / widow / disability pension delay', department: 'Social Welfare Department', level: 'Mandal',
+            summary: 'My pension application has been pending for an unreasonably long time without any update.',
+            questions: [ 'Please provide a certified copy of the inward register showing the receipt of my application.', 'Please provide a certified copy of the official file notings showing the daily movement of my file.', 'Please provide a certified copy of the documented reasons on record for the delay.', 'Please provide a certified copy of the pending applications list at the current processing stage.' ]
+        }, {
+            title: 'Scholarship Status', desc: 'Scholarship application or disbursal delay', department: 'Social Welfare / Education Department', level: 'District',
+            summary: 'My scholarship application has not been processed and the amount has not been disbursed.',
+            questions: [ 'Please provide a certified copy of the file notings regarding the processing of my scholarship application.', 'Please provide a certified copy of the Fund Transfer Order (FTO) or bank remittance sheet if the amount was disbursed.', 'Please provide a certified copy of the documented reasons on record for the delay in processing.', 'Please provide a certified copy of the list of students whose scholarships are currently on hold.' ]
+        }, {
+            title: 'Ration Card Application Status', desc: 'New ration card or correction pending', department: 'Civil Supplies Department', level: 'Mandal',
+            summary: 'My application for a new ration card / correction in ration card has not been processed.',
+            questions: [ 'Please provide a certified copy of the application register showing the current status of my request.', 'Please provide a certified copy of the field verification report submitted by the supply inspector.', 'Please provide a certified copy of the exact reason documented on record for keeping the application pending.', 'Please provide a certified copy of the citizen\'s charter timeline for issuing ration cards.' ]
+        }, {
+            title: 'PMAY Housing Status', desc: 'Pradhan Mantri Awas Yojana application/funds', department: 'Housing Department', level: 'District',
+            summary: 'My application under the PMAY housing scheme is pending and installments have not been released.',
+            questions: [ 'Please provide a certified copy of the sanction order for my PMAY application.', 'Please provide a certified copy of the geo-tagging inspection reports for my housing unit.', 'Please provide a certified copy of the payment ledger/FTO showing installments released so far.', 'Please provide a certified copy of the file notings explaining the delay in releasing the next installment.' ]
+        }, {
+            title: 'Water Supply Issues', desc: 'Irregular or no water supply in area', department: 'Public Health Engineering / Municipal Department', level: 'Village',
+            summary: 'There has been irregular or no piped water supply in our area for an extended period.',
+            questions: [ 'Please provide a certified copy of the official water supply roster for our area.', 'Please provide a certified copy of the pumping station logbook for the past 30 days.', 'Please provide a certified copy of the complaint register and the Action Taken Reports for this locality.', 'Please provide a certified copy of the maintenance and pipeline repair records for our ward.' ]
+        }, {
+            title: 'Electricity Connection Status', desc: 'New connection or supply complaint', department: 'Electricity Department / DISCOM', level: 'Mandal',
+            summary: 'My application for a new electricity connection / a supply complaint has not been resolved.',
+            questions: [ 'Please provide a certified copy of the inward register showing my application/complaint.', 'Please provide a certified copy of the technical feasibility report submitted by the field engineer.', 'Please provide a certified copy of the file notings detailing why the connection/resolution is delayed.', 'Please provide a certified copy of the grievance redressal timeline as per the Electricity Supply Code.' ]
+        }, {
+            title: 'Government Hospital Facilities', desc: 'Staff, medicine or equipment shortage', department: 'Health Department', level: 'District',
+            summary: 'The government hospital in our area lacks adequate staff, medicines, or equipment.',
+            questions: [ 'Please provide a certified copy of the sanctioned vs. actual staff strength register for the hospital.', 'Please provide a certified copy of the stock register for essential medicines for the last 3 months.', 'Please provide a certified copy of the equipment downtime/repair logbook.', 'Please provide a certified copy of the budget utilization certificate for the hospital for the current year.' ]
+        }, {
+            title: 'Municipality Complaints', desc: 'Drainage, street lights, garbage collection', department: 'Municipal Administration Department', level: 'Village',
+            summary: 'A civic complaint (drainage / street lighting / garbage collection) raised with the municipality remains unresolved.',
+            questions: [ 'Please provide a certified copy of the complaint register showing my grievance.', 'Please provide a certified copy of the Action Taken Report (ATR) filed by the concerned sanitary/ward officer.', 'Please provide a certified copy of the documented reasons on record for the delay in resolving the issue.', 'Please provide a certified copy of the duty roster of the sanitation staff assigned to this ward.' ]
+        }, {
+            title: 'Revenue Department Records', desc: 'Land records, mutation, certificates', department: 'Revenue Department', level: 'Mandal',
+            summary: 'My application relating to land records / mutation / a revenue certificate has not been processed.',
+            questions: [ 'Please provide a certified copy of the official file notings showing the movement of my application.', 'Please provide a certified copy of the report submitted by the Village Revenue Officer (VRO) / Patwari.', 'Please provide a certified copy of the documented reasons on record for the delay.', 'Please provide a certified copy of the timeline prescribed under the Right to Public Services Act for this service.' ]
+        }, {
+            title: 'Land Survey Status', desc: 'Resurvey, boundary demarcation pending', department: 'Revenue / Survey & Settlement Department', level: 'Mandal',
+            summary: 'The land survey / boundary demarcation requested for my plot has not been carried out.',
+            questions: [ 'Please provide a certified copy of the register showing the receipt of my survey fee/application.', 'Please provide a certified copy of the duty allocation register of the Mandal/Village Surveyor.', 'Please provide a certified copy of the documented reasons on record for not conducting the survey till date.', 'Please provide a certified copy of the official rules detailing the maximum time allowed to complete a requested survey.' ]
+        }, {
+            title: 'MGNREGA Work Details', desc: 'Work allotment, wage payment delay', department: 'Rural Development / Panchayat Raj Department', level: 'Mandal',
+            summary: 'Work allotment / wage payments under MGNREGA for my job card have been delayed.',
+            questions: [ 'Please provide a certified copy of the muster roll for my Job Card for the current financial year.', 'Please provide a certified copy of the exact reason documented on record for the delay in wage payment.', 'Please provide a certified copy of the Fund Transfer Order (FTO) generated for my wages.', 'Please provide a certified copy of the official work allocation register for my panchayat for the last 6 months.' ]
+        }];
+
+        const TEMPLATE_CLARIFICATIONS = {
+            en: [
+                'This is a general road-works template. Please tell us: (1) the exact village/area name and district, and (2) the sanction order / work order / budget number, if you have one — so the RTI can be tailored to your case.',
+                'This is a general pension template. Please tell us: (1) your Pension Account / PPO number (if you have one), and (2) the type of pension (Old Age / Widow / Disability / other) — so the RTI can be tailored to your case.',
+                'This is a general scholarship template. Please tell us: (1) your Scholarship Application ID or reference number, and (2) the exact name of the scholarship scheme — so the RTI can be tailored to your case.',
+                'This is a general ration card template. Please tell us: (1) your Ration Card number or application reference number, and (2) your Fair Price Shop / area name — so the RTI can be tailored to your case.',
+                'This is a general PMAY housing template. Please tell us: (1) your PMAY Application ID, and (2) your village/area name — so the RTI can be tailored to your case.',
+                'This is a general water-supply template. Please tell us: (1) your area/locality name, and (2) your ward number, if known — so the RTI can be tailored to your case.',
+                'This is a general electricity template. Please tell us: (1) your Consumer/Service number (for an existing connection) or application reference number, and (2) your area name — so the RTI can be tailored to your case.',
+                'This is a general hospital-facilities template. Please tell us: (1) the exact hospital name, and (2) its location (village/town/district) — so the RTI can be tailored to your case.',
+                'This is a general municipality-complaint template. Please tell us: (1) your complaint reference number, if any, and (2) your ward/area name — so the RTI can be tailored to your case.',
+                'This is a general revenue-records template. Please tell us: (1) your survey number / land record number, and (2) your village/mandal name — so the RTI can be tailored to your case.',
+                'This is a general land-survey template. Please tell us: (1) your survey number, and (2) your village/mandal name — so the RTI can be tailored to your case.',
+                'This is a general MGNREGA template. Please tell us: (1) your Job Card number, and (2) your village/panchayat name — so the RTI can be tailored to your case.'
+            ],
+            hi: [
+                'यह एक सामान्य सड़क-निर्माण टेम्पलेट है। कृपया बताएं: (1) सटीक गाँव/क्षेत्र का नाम और ज़िला, और (2) यदि उपलब्ध हो तो स्वीकृति आदेश / कार्य आदेश / बजट संख्या — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य पेंशन टेम्पलेट है। कृपया बताएं: (1) आपका पेंशन खाता / PPO नंबर (यदि हो), और (2) पेंशन का प्रकार (वृद्धावस्था / विधवा / विकलांगता / अन्य) — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य छात्रवृत्ति टेम्पलेट है। कृपया बताएं: (1) आपकी छात्रवृत्ति आवेदन ID या संदर्भ संख्या, और (2) छात्रवृत्ति योजना का सटीक नाम — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य राशन कार्ड टेम्पलेट है। कृपया बताएं: (1) आपका राशन कार्ड नंबर या आवेदन संदर्भ संख्या, और (2) आपकी उचित मूल्य दुकान / क्षेत्र का नाम — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य PMAY आवास टेम्पलेट है। कृपया बताएं: (1) आपकी PMAY आवेदन ID, और (2) आपके गाँव/क्षेत्र का नाम — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य जलापूर्ति टेम्पलेट है। कृपया बताएं: (1) आपके क्षेत्र/मोहल्ले का नाम, और (2) यदि ज्ञात हो तो वार्ड नंबर — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य बिजली टेम्पलेट है। कृपया बताएं: (1) मौजूदा कनेक्शन के लिए आपका उपभोक्ता/सेवा नंबर या आवेदन संदर्भ संख्या, और (2) आपके क्षेत्र का नाम — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य अस्पताल-सुविधा टेम्पलेट है। कृपया बताएं: (1) अस्पताल का सटीक नाम, और (2) उसका स्थान (गाँव/शहर/ज़िला) — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य नगरपालिका-शिकायत टेम्पलेट है। कृपया बताएं: (1) यदि हो तो आपकी शिकायत संदर्भ संख्या, और (2) आपके वार्ड/क्षेत्र का नाम — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य राजस्व-रिकॉर्ड टेम्पलेट है। कृपया बताएं: (1) आपका सर्वे नंबर / भूमि रिकॉर्ड नंबर, और (2) आपके गाँव/मंडल का नाम — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य भूमि-सर्वेक्षण टेम्पलेट है। कृपया बताएं: (1) आपका सर्वे नंबर, और (2) आपके गाँव/मंडल का नाम — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।',
+                'यह एक सामान्य MGNREGA टेम्पलेट है। कृपया बताएं: (1) आपका जॉब कार्ड नंबर, और (2) आपके गाँव/पंचायत का नाम — ताकि RTI आपके मामले के अनुसार तैयार की जा सके।'
+            ],
+            te: [
+                'ఇది సాధారణ రోడ్డు-నిర్మాణ టెంప్లేట్. దయచేసి తెలియజేయండి: (1) ఖచ్చితమైన గ్రామం/ప్రాంతం పేరు మరియు జిల్లా, మరియు (2) ఉంటే మంజూరు ఆర్డర్ / వర్క్ ఆర్డర్ / బడ్జెట్ నంబర్ — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ పెన్షన్ టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ పెన్షన్ ఖాతా / PPO నంబర్ (ఉంటే), మరియు (2) పెన్షన్ రకం (వృద్ధాప్య / విధవ / వికలాంగ / ఇతర) — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ స్కాలర్‌షిప్ టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ స్కాలర్‌షిప్ అప్లికేషన్ ID లేదా సూచన సంఖ్య, మరియు (2) స్కాలర్‌షిప్ పథకం ఖచ్చితమైన పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ రేషన్ కార్డ్ టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ రేషన్ కార్డ్ నంబర్ లేదా అప్లికేషన్ సూచన సంఖ్య, మరియు (2) మీ ఫెయిర్ ప్రైస్ షాప్ / ప్రాంతం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ PMAY గృహ టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ PMAY అప్లికేషన్ ID, మరియు (2) మీ గ్రామం/ప్రాంతం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ నీటి-సరఫరా టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ ప్రాంతం/ప్రదేశం పేరు, మరియు (2) తెలిస్తే మీ వార్డు నంబర్ — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ విద్యుత్ టెంప్లేట్. దయచేసి తెలియజేయండి: (1) ఇప్పటికే ఉన్న కనెక్షన్ కోసం మీ కన్జూమర్/సర్వీస్ నంబర్ లేదా అప్లికేషన్ సూచన సంఖ్య, మరియు (2) మీ ప్రాంతం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ ఆసుపత్రి-సౌకర్యాల టెంప్లేట్. దయచేసి తెలియజేయండి: (1) ఆసుపత్రి ఖచ్చితమైన పేరు, మరియు (2) దాని స్థానం (గ్రామం/పట్టణం/జిల్లా) — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ మునిసిపాలిటీ-ఫిర్యాదు టెంప్లేట్. దయచేసి తెలియజేయండి: (1) ఉంటే మీ ఫిర్యాదు సూచన సంఖ్య, మరియు (2) మీ వార్డు/ప్రాంతం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ రెవెన్యూ-రికార్డుల టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ సర్వే నంబర్ / भूमि రికార్డు నంబర్, మరియు (2) మీ గ్రామం/మండలం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ భూమి-సర్వే టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ సర్వే నంబర్, మరియు (2) మీ గ్రామం/మండలం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ MGNREGA టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ జాబ్ కార్డ్ నంబర్, మరియు (2) మీ గ్రామం/పంచాయతీ పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.'
+            ]
+        };
+
+        // ---------- RTI INFO ----------
+        const RTI_INFO_L10N = {
+            en: [
+                { icon: '📋', title: 'Official records & documents', desc: 'Files, correspondence, reports, inspection notes, and certified copies of any record held by a public authority.' },
+                { icon: '💰', title: 'Budgets & expenditure', desc: 'Allocated funds, released amounts, utilisation certificates, audit reports, and details of how public money was spent.' },
+                { icon: '🛣️', title: 'Projects & infrastructure', desc: 'Sanction letters, tender documents, contractor details, completion status, and physical progress of roads, buildings, and schemes.' },
+                { icon: '🏥', title: 'Public services', desc: 'Hospital bed availability, medicine stocks, staff vacancies, pension status, ration card lists, and welfare scheme beneficiaries.' },
+                { icon: '📜', title: 'Policies & decisions', desc: 'Meeting minutes, policy notes, reasons behind administrative decisions, and copies of orders or circulars.' },
+                { icon: '🏛️', title: 'Land & property', desc: 'Land records, encumbrance details, acquisition notices, building permissions, and property ownership held by government.' },
+                { icon: '👥', title: 'Appointments & recruitment', desc: 'Vacancy lists, selection criteria, merit lists, and non-personal details about appointments and promotions.' },
+                { icon: '🌿', title: 'Environment & clearances', desc: 'Environmental impact assessments, pollution data, mining permits, and forest or coastal clearance documents.' },
+                { icon: '⚖️', title: 'Complaints & investigations', desc: 'Status of complaints filed, inquiry reports, disciplinary proceedings, and action taken on corruption allegations.' },
+                { icon: '📊', title: 'Statistical & survey data', desc: 'Census-related data, survey results, performance indicators, and any data collected by government agencies.' }
+            ],
+            hi: [
+                { icon: '📋', title: 'सरकारी रिकॉर्ड और दस्तावेज़', desc: 'फ़ाइलें, पत्राचार, रिपोर्ट, निरीक्षण नोट्स और सार्वजनिक प्राधिकरण के किसी भी रिकॉर्ड की प्रमाणित प्रतियाँ।' },
+                { icon: '💰', title: 'बजट और व्यय', desc: 'आवंटित धन, जारी राशि, उपयोग प्रमाणपत्र, लेखा परीक्षा रिपोर्ट और सार्वजनिक धन के उपयोग का विवरण।' },
+                { icon: '🛣️', title: 'प्रोजेक्ट और बुनियादी ढाँचा', desc: 'मंजूरी पत्र, निविदा दस्तावेज़, ठेकेदार विवरण, पूर्णता स्थिति और सड़क, भवन व योजनाओं की भौतिक प्रगति।' },
+                { icon: '🏥', title: 'सार्वजनिक सेवाएँ', desc: 'अस्पताल बिस्तर उपलब्धता, दवा स्टॉक, कर्मचारी रिक्तियाँ, पेंशन स्थिति, राशन कार्ड सूची और कल्याण योजना लाभार्थी।' },
+                { icon: '📜', title: 'नीतियाँ और निर्णय', desc: 'बैठक के मिनट, नीति नोट्स, प्रशासनिक निर्णयों के कारण और आदेश या परिपत्र की प्रतियाँ।' },
+                { icon: '🏛️', title: 'भूमि और संपत्ति', desc: 'भूमि रिकॉर्ड, बाधा विवरण, अधिग्रहण नोटिस, भवन अनुमति और सरकार के पास संपत्ति का विवरण।' },
+                { icon: '👥', title: 'नियुक्ति और भर्ती', desc: 'रिक्ति सूची, चयन मानदंड, मेरिट सूची और नियुक्ति व पदोन्नति के गैर-व्यक्तिगत विवरण।' },
+                { icon: '🌿', title: 'पर्यावरण और अनुमति', desc: 'पर्यावरण प्रभाव आकलन, प्रदूषण डेटा, खनन परमिट और वन या तटीय साफ़ परमिट दस्तावेज़।' },
+                { icon: '⚖️', title: 'शिकायत और जाँच', desc: 'दर्ज शिकायतों की स्थिति, जाँच रिपोर्ट, अनुशासनिक कार्यवाही और भ्रष्टाचार आरोपों पर की गई कार्रवाई।' },
+                { icon: '📊', title: 'सांख्यिकीय और सर्वेक्षण डेटा', desc: 'जनगणना डेटा, सर्वेक्षण परिणाम, प्रदर्शन संकेतक और सरकारी एजेंसियों का संग्रहित डेटा।' }
+            ],
+            te: [
+                { icon: '📋', title: 'ప్రభుత్వ రికార్డులు & పత్రాలు', desc: 'ఫైల్‌లు, కరస్పాండెన్స్, రిపోర్టులు, తనిఖీ నోట్స్ మరియు ప్రభుత్వ సంస్థ నిల్వ రికార్డుల ప్రమాణిత కాపీలు.' },
+                { icon: '💰', title: 'బడ్జెట్లు & వినియోగం', desc: 'కేటాయించిన నిధులు, విడుదల చేసిన మొత్తాలు, వినియోగ ధృవపత్రాలు, ఆడిట్ రిపోర్టులు మరియు ప్రభుత్వ డబ్బు ఎలా వినియోగించబడిందో వివరాలు.' },
+                { icon: '🛣️', title: 'ప్రాజెక్టులు & ఇన్ఫ్రాస్ట్రక్టర్', desc: 'మంజూరు లేఖలు, టెండర్ పత్రాలు, కాంట్రాక్టర్ వివరాలు, పూర్తి స్థితి మరియు రోడ్డులు, భవనాలు, పథకాల భౌతిక పురోగతి.' },
+                { icon: '🏥', title: 'ప్రజా సేవలు', desc: 'ఆసుపత్రి బెడ్ లభ్యత, మందుల స్టాక్, సిబ్బంది ఖాళీలు, పెన్షన్ స్థితి, రేషన్ కార్డ్ జాబితాలు మరియు సంక్షేమ పథక లబ్ధిదారుడు.' },
+                { icon: '📜', title: 'విధానాలు & నిర్ణయాలు', desc: 'సమావేశ నిమిషాలు, విధాన నోట్స్, ప్రశాసన నిర్ణయాల కారణాలు మరియు ఆదేశాలు లేదా సర్క్యులర్ కాపీలు.' },
+                { icon: '🏛️', title: 'భూమి & ఆస్తులు', desc: 'భూమి రికార్డులు, ఎన్‌కంబరెన్స్ వివరాలు, స్వాధీన నోటీసులు, భవన అనుమతులు మరియు ప్రభుత్వం నిల్వ ఆస్తి వివరాలు.' },
+                { icon: '👥', title: 'నియామకాలు & నియోజన', desc: 'ఖాళీ జాబితాలు, ఎంపిక నిబంధనలు, మెరిట్ జాబితాలు మరియు నియామకాలు, పదోన్నతుల వ్యక్తిగతేతర వివరాలు.' },
+                { icon: '🌿', title: 'పర్యావరణ & అనుమతులు', desc: 'పర్యావరణ ప్రభావ అంచనాలు, కాలుష్య డేటా, మైనింగ్ పర్మిట్లు మరియు అటవీ లేదా కోస్టల్ క్లియరెన్స్ పత్రాలు.' },
+                { icon: '⚖️', title: 'ఫిర్యాదులు & విచారణలు', desc: 'నమోదు చేసిన ఫిర్యాదుల స్థితి, విచారణ రిపోర్టులు, శాసన కార్యవాహిక మరియు అవినీతి ఆరోపణలపై చర్య.' },
+                { icon: '📊', title: 'సాంకేతిక & సర్వే డేటా', desc: 'జనగణన డేటా, సర్వే ఫలితాలు, పనితీరు సూచికలు మరియు ప్రభుత్వ సంస్థలు సేకరించిన డేటా.' }
+            ]
+        };
+
+        const TEMPLATE_L10N = {
+            en: TEMPLATES.map(t => ({ title: t.title, desc: t.desc })),
+            hi: [
+                { title: 'सड़क निर्माण स्थिति', desc: 'मंजूर सड़क कार्य विलंबित या अधूरा' },
+                { title: 'पेंशन आवेदन स्थिति', desc: 'वृद्धावस्था / विधवा / विकलांगता पेंशन विलंब' },
+                { title: 'छात्रवृत्ति स्थिति', desc: 'छात्रवृत्ति आवेदन या वितरण विलंब' },
+                { title: 'राशन कार्ड आवेदन स्थिति', desc: 'नया राशन कार्ड या सुधार लंबित' },
+                { title: 'PMAY आवास स्थिति', desc: 'प्रधानमंत्री आवास योजना आवेदन/धन' },
+                { title: 'जल आपूर्ति समस्याएँ', desc: 'क्षेत्र में अनियमित या जल आपूर्ति नहीं' },
+                { title: 'बिजली कनेक्शन स्थिति', desc: 'नया कनेक्शन या आपूर्ति शिकायत' },
+                { title: 'सरकारी अस्पताल सुविधाएँ', desc: 'कर्मचारी, दवा या उपकरण की कमी' },
+                { title: 'नगरपालिका शिकायतें', desc: 'नाली, स्ट्रीट लाइट, कचरा संग्रह' },
+                { title: 'राजस्व विभाग रिकॉर्ड', desc: 'भूमि रिकॉर्ड, म्यूटेशन, प्रमाणपत्र' },
+                { title: 'भूमि सर्वेक्षण स्थिति', desc: 'पुनः सर्वेक्षण, सीमा चिह्नांकन लंबित' },
+                { title: 'MGNREGA कार्य विवरण', desc: 'कार्य आवंटन, वेतन भुगतान विलंब' }
+            ],
+            te: [
+                { title: 'రోడ్డు నిర్మాణ స్థితి', desc: 'మంజూరు రోడ్డు పని ఆలస్యం లేదా అసంపూర్ణం' },
+                { title: 'పెన్షన్ అప్లికేషన్ స్థితి', desc: 'వృద్ధాపు / విధవ / వికలాంగ పెన్షన్ ఆలస్యం' },
+                { title: 'స్కాలర్‌షిప్ స్థితి', desc: 'స్కాలర్‌షిప్ అప్లికేషన్ లేదా వితరణ ఆలస్యం' },
+                { title: 'రేషన్ కార్డ్ అప్లికేషన్ స్థితి', desc: 'న్యూ రేషన్ కార్డ్ లేదా సవరణ లంబితం' },
+                { title: 'PMAY గృహ స్థితి', desc: 'ప్రధానమంత్రి ఆవాస్ యోజనా అప్లికేషన్/నిధులు' },
+                { title: 'నీటి సరఫరా సమస్యలు', desc: 'ప్రాంతంలో అనియమిత లేదా నీటి సరఫరా లేదు' },
+                { title: 'విద్యుత్ కనెక్షన్ స్థితి', desc: 'న్యూ కనెక్షన్ లేదా సరఫరా ఫిర్యాదు' },
+                { title: 'ప్రభుత్వ ఆసుపత్రి సౌకర్యాలు', desc: 'సిబ్బంది, మందులు లేదా పరికరాల కొరత' },
+                { title: 'మునిసిపాలిటీ ఫిర్యాదులు', desc: 'డ్రైనేజీ, స్ట్రీట్ లైట్లు, గార్బేజ్ సేకరణ' },
+                { title: 'రెవెన్యూ శాఖ రికార్డులు', desc: 'భూమి రికార్డులు, మ్యూటేషన్, సర్టిఫికెట్లు' },
+                { title: 'భూమి సర్వే స్థితి', desc: 'రీసర్వే, సరిహద్దు గుర్తింపు లంబితం' },
+                { title: 'MGNREGA పని వివరాలు', desc: 'పని కేటాయింపు, వేతన చెల్లింపు ఆలస్యం' }
+            ]
+        };
+
+        const FALLBACK_TEXTS = {
+            en: {
+                to: 'To: ', dept: 'Department: ', subject: 'Subject: Request for information under the Right to Information Act, 2005',
+                background: 'Background:', requested: 'Requested information:',
+                bodyRequest: 'I request you to provide the above information under the RTI Act, 2005. If any portion is exempt, please cite the relevant section and provide the remaining non-exempt information.',
+                nameLabel: 'Applicant Name:', addressLabel: 'Address:', mobileLabel: 'Mobile:', emailLabel: 'Email:', signature: 'Signature:', date: 'Date:'
+            },
+            hi: {
+                to: 'प्रति:', dept: 'विभाग: ', subject: 'विषय: सूचना के अधिकार अधिनियम, 2005 के अंतर्गत सूचना का अनुरोध',
+                background: 'पृष्ठभूमि:', requested: 'अनुरोधित जानकारी:',
+                bodyRequest: 'कृपया उपर्युक्त जानकारी RTI अधिनियम, 2005 के तहत प्रदान करें। यदि कोई भाग अपवादित है, तो संबंधित धारा का उल्लेख करें और शेष गैर-अपवादित जानकारी प्रदान करें।',
+                nameLabel: 'आवेदक का नाम:', addressLabel: 'पता:', mobileLabel: 'मोबाइल:', emailLabel: 'ईमेल:', signature: 'हस्ताक्षर:', date: 'तिथि:'
+            },
+            te: {
+                to: 'కు:', dept: 'విభాగం: ', subject: 'విషయం: సమాచార హక్కు చట్టం, 2005 ప్రకారం సమాచారాన్ని కోరుతూ',
+                background: 'ప్రాథమిక సూచన:', requested: 'అనురోధించబడిన సమాచారం:',
+                bodyRequest: 'దయచేసి పై సమాచారాన్ని RTI చట్టం, 2005 ప్రకారం అందించండి. ఏ భాగం మినహాయింపుగా ఉంటే సంబంధిత సెక్షన్‌ని పేర్కొని మిగులు అనుమతి లేని సమాచారాన్ని అందించండి.',
+                nameLabel: 'అప్లికెంట్ పేరు:', addressLabel: 'చిరునామా:', mobileLabel: 'మొబైల్:', emailLabel: 'ఇమెయిల్:', signature: 'సంతకం: ', date: 'తేదీ:'
+            }
+        };
+
+        // ================================================================
+        //  UI SETUP
+        // ================================================================
+
+        const langSelect = document.getElementById('langSelect');
+        LANGS.forEach((l, i) => {
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = l.name;
+            langSelect.appendChild(opt);
+        });
+        const selectedIndex = LANGS.findIndex(l => l.code === state.lang.code);
+        if (selectedIndex >= 0) langSelect.selectedIndex = selectedIndex;
+
+        langSelect.addEventListener('change', e => {
+            state.lang = LANGS[+e.target.value];
+            try { localStorage.setItem('rti_lang', state.lang.code); } catch (_) {}
+            if (state.recognition) state.recognition.lang = state.lang.code;
+            applyLanguage();
+        });
+
+        function applyLanguage() {
+            const setText = (id, key) => { const el = document.getElementById(id); if (el) el.textContent = t(key); };
+            const setHtml = (id, key) => { const el = document.getElementById(id); if (el) el.innerHTML = t(key); };
+
+            setText('brandSub', 'brandSub');
+            setHtml('loginTitle', 'loginTitle');
+            setText('loginSubtitle', 'loginSubtitle');
+            setText('loginLabelName', 'loginLabelName');
+            setText('loginLabelAddress', 'loginLabelAddress');
+            setText('loginLabelMobile', 'loginLabelMobile');
+            setHtml('loginLabelEmail', 'loginLabelEmail');
+            setText('loginHint', 'loginHint');
+            setText('loginSkipBtn', 'loginSkip');
+            setText('loginContinueBtn', 'loginContinue');
+            setText('profileBannerText', 'profileBannerText');
+            setText('profileBannerEditBtn', 'profileBannerEdit');
+            setHtml('rtiInfoTitle', 'rtiInfoTitle');
+            setText('rtiInfoLead', 'rtiInfoLead');
+            setHtml('rtiInfoNote', 'rtiInfoNote');
+            setText('rtiInfoBackBtn', 'rtiInfoBack');
+            setHtml('step1Title', 'step1Title');
+            setText('step1Subtitle', 'step1Subtitle');
+            setHtml('rtiIntroText', 'rtiIntroText');
+            setText('readMoreRtiBtn', 'readMoreRti');
+            setText('watchDemoBtn', 'watchDemo');
+            if (!state.recognizing) setText('micStatus', 'micTap');
+            setText('fallbackLabel', 'fallbackLabel');
+            document.getElementById('fallbackInput').placeholder = t('fallbackPlaceholder');
+            setText('tryAgainBtn', 'clearBtn');
+            setText('proceedBtn', 'proceedBtn');
+            setText('templatesTitle', 'templatesTitle');
+            setText('templatesSubtitle', 'templatesSubtitle');
+            setHtml('labelName', 'labelName');
+            setHtml('labelAddress', 'labelAddress');
+            document.getElementById('f_name').placeholder = t('placeholderName');
+            document.getElementById('f_address').placeholder = t('placeholderAddress');
+            setText('hintAddress', 'hintAddress');
+            setHtml('labelSummary', 'labelSummary');
+            setHtml('labelDepartment', 'labelDepartment');
+            setText('labelLevel', 'labelLevel');
+            setText('labelTarget', 'labelTarget');
+            setText('hintTarget', 'hintTarget');
+            setHtml('labelQuestions', 'labelQuestions');
+            setText('hintQuestions', 'hintQuestions');
+            setText('backTo1Btn', 'backBtn');
+            setText('genDraftBtn', 'genDraftBtn');
+            setText('step2LoadingText', 'step2Loading');
+            setText('step3LoadingText', 'step3Loading');
+            setText('docWatermark', 'docWatermark');
+            setText('readAloudBtn', 'readAloud');
+            setText('copyBtn', 'copyBtn');
+            setText('printBtn', 'printBtn');
+            setText('pdfBtn', 'pdfBtn');
+            setText('docBtn', 'docBtn');
+            setText('shareBtn', 'shareBtn');
+            setText('backTo2Btn', 'backTo2Btn');
+            setText('restartBtn', 'restartBtn');
+            setText('disclaimer', 'disclaimer');
+
+            document.getElementById('clarificationAnswer').placeholder = t('clarificationPlaceholder');
+            setText('confirmBoxTitle', 'confirmBoxTitle');
+            setText('confirmYesNoLabel', 'confirmYesNoLabel');
+            setText('confirmYesBtn', 'confirmYes');
+            setText('confirmNoBtn', 'confirmNo');
+            if (!state.speaking) setText('readAloudBtn', 'readAloud');
+            if (!state.confirmSpeaking) setText('confirmReadAloudBtn', 'readAloud');
+
+            const levelSel = document.getElementById('f_level');
+            const curLevel = levelSel.value || 'Mandal';
+            levelSel.innerHTML = '';
+            LEVEL_KEYS.forEach(k => {
+                const opt = document.createElement('option');
+                opt.value = k;
+                opt.textContent = t('levels')[k];
+                levelSel.appendChild(opt);
+            });
+            if (LEVEL_KEYS.includes(curLevel)) levelSel.value = curLevel;
+
+            const targetInput = document.getElementById('f_target');
+            if (targetInput.value) targetInput.value = getTargetOfficer(levelSel.value);
+
+            renderSteptrail();
+            renderTemplateGrid();
+            renderRtiInfoGrid();
+        }
+
+        function renderSteptrail() {
+            const el = document.getElementById('steptrail');
+            el.innerHTML = '';
+            const labels = [t('stepDescribe'), t('stepVerify'), t('stepDraft')];
+            labels.forEach((label, i) => {
+                const n = i + 1;
+                const div = document.createElement('div');
+                div.className = 'step-node' + (n === state.currentStep ? ' active' : '') + (n < state.currentStep ? ' done' : '');
+                div.innerHTML = `<div class="step-dot">${n < state.currentStep ? '✓' : n}</div><div class="step-label">${label}</div>`;
+                el.appendChild(div);
+            });
+        }
+
+        // ================================================================
+        //  RTI INTENT GUARD INTEGRATION
+        // ================================================================
+        function runHeuristicIntentGuard(text) {
+            if (!window.RTIIntentGuard) return { intent: 'RTI_REQUEST', should_generate_rti: true };
+            try {
+                return RTIIntentGuard.detectRtiIntentHeuristic(text);
+            } catch (err) {
+                console.warn('Intent guard heuristic failed:', err);
+                return { intent: 'RTI_REQUEST', should_generate_rti: true };
+            }
+        }
+
+        async function runAiIntentGuard(text) {
+            if (!window.RTIIntentGuard) return null;
+            try {
+                const prompt = RTIIntentGuard.buildIntentGuardPrompt(text);
+                const resp = await fetchWithRetry(`${BACKEND_URL}/api/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt, temperature: 0, model: 'gemini-2.5-flash' })
+                });
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                return RTIIntentGuard.parseIntentGuardJson(raw);
+            } catch (err) {
+                console.warn('Intent guard AI check failed:', err);
+                return null;
+            }
+        }
+
+        async function resolveIntentGuard(text, proceedBtnEl) {
+            const heuristicResult = runHeuristicIntentGuard(text);
+
+            const obviousIntents = ['GREETING', 'MIC_TEST', 'INVALID_INPUT', 'CASUAL_CHAT'];
+            if (obviousIntents.includes(heuristicResult.intent) && heuristicResult.confidence >= 0.98) {
+                return heuristicResult;
+            }
+
+            const safetyCriticalIntents = ['NATIONAL_SECURITY', 'ILLEGAL_REQUEST', 'PERSONAL_INFORMATION', 'RTI_REQUEST'];
+            if (safetyCriticalIntents.includes(heuristicResult.intent)) {
+                return heuristicResult;
+            }
+            let originalLabel = null;
+            if (proceedBtnEl) {
+                originalLabel = proceedBtnEl.textContent;
+                proceedBtnEl.disabled = true;
+                proceedBtnEl.textContent = '⏳ …';
+            }
+
+            let aiResult = null;
+            try {
+                aiResult = await runAiIntentGuard(text);
+            } finally {
+                if (proceedBtnEl) {
+                    proceedBtnEl.disabled = false;
+                    proceedBtnEl.textContent = originalLabel;
+                }
+            }
+
+            return aiResult || heuristicResult;
+        }
+
+        function handleNonRtiIntent(guardResult, complaintText) {
+            const intent = guardResult.intent;
+            const message = guardResult.response || RTIIntentGuard.offlineResponse(intent, complaintText);
+
+            if (intent === 'GOVERNMENT_SERVICE_REQUEST') {
+                const container = document.getElementById('step1Error');
+                container.innerHTML = `<div class="protocol-warning">⚠️ ${message}</div>`;
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-primary ui';
+                btn.type = 'button';
+                btn.style.marginTop = '10px';
+                btn.textContent = t('intentContinueAnyway');
+                btn.addEventListener('click', async () => {
+                    clearError('step1Error');
+                    state.originalComplaint = complaintText;
+                    await runIssueAnalysis(complaintText);
+                });
+                container.appendChild(btn);
+                return;
+            }
+
+            document.getElementById('nonRtiExplanation').textContent = message;
+            document.getElementById('nonRtiModal').style.display = 'flex';
+        }
+
+        // ================================================================
+        //  AI DYNAMIC SUMMARY GRAMMAR REFINEMENT & POLISH
+        // ================================================================
+        document.getElementById('refineGrammarBtn').addEventListener('click', async () => {
+            const summaryBox = document.getElementById('f_summary');
+            const rawText = summaryBox.value.trim();
+            const statusLabel = document.getElementById('refineGrammarStatus');
+
+            if (!rawText) {
+                statusLabel.textContent = '⚠️ Summary is empty.';
+                statusLabel.style.color = '#8A2E1B';
+                return;
+            }
+
+            statusLabel.textContent = '⏳ Polishing Grammar...';
+            statusLabel.style.color = 'var(--muted)';
+            document.getElementById('refineGrammarBtn').disabled = true;
+
+            try {
+                const langPlain = langKey() === 'en' ? 'English' : (langKey() === 'hi' ? 'Hindi' : 'Telugu');
+                const prompt = `
+                    You are a highly efficient formal administrative editor.
+                    Review the following rough spoken issue or statement: "${rawText}"
+
+                    Rephrase and write exactly ONE grammatically perfect, professional sentence in "${langPlain}" expressing this complaint objectively.
+                    Remove colloquial conversational expressions, typos, double spacing, and repeated thoughts.
+                    Return ONLY the corrected sentence. No commentary, no quote marks, no greeting.
+                `;
+
+                const resp = await fetchWithRetry(`${BACKEND_URL}/api/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt, temperature: 0.1, model: 'gemini-2.5-flash' })
+                });
+
+                if (!resp.ok) {
+                    throw new Error(`API returned ${resp.status}`);
+                }
+
+                const data = await resp.json();
+                let cleanText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+
+                if (cleanText) {
+                    summaryBox.value = cleanText.replace(/^"|"$/g, '').trim();
+                    statusLabel.textContent = '✨ Grammar Polished Successfully!';
+                    statusLabel.style.color = 'var(--green)';
+                } else {
+                    statusLabel.textContent = '⚠️ Empty response received.';
+                    statusLabel.style.color = '#8A2E1B';
+                }
+            } catch (err) {
+                console.warn(err);
+                statusLabel.textContent = '❌ ' + friendlyApiErrorMessage();
+                statusLabel.style.color = '#8A2E1B';
+            } finally {
+                document.getElementById('refineGrammarBtn').disabled = false;
+            }
+        });
+
+        function renderTemplateGrid() {
+            const grid = document.getElementById('templateGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            const l10n = TEMPLATE_L10N[langKey()] || TEMPLATE_L10N.en;
+            TEMPLATES.forEach((tmpl, i) => {
+                const card = document.createElement('button');
+                card.className = 'template-card';
+                const loc = l10n[i] || { title: tmpl.title, desc: tmpl.desc };
+                card.innerHTML = `<div class="t-title">${loc.title}</div><div class="t-desc">${loc.desc}</div>`;
+                card.addEventListener('click', () => startFromTemplate(tmpl, i));
+                grid.appendChild(card);
+            });
+        }
+
+        const RTI_JURISDICTIONS = [
+            ['AN','Andaman and Nicobar Islands','Union Territory',10],
+            ['AP','Andhra Pradesh','State',10],
+            ['AR','Arunachal Pradesh','State',10],
+            ['AS','Assam','State',10],
+            ['BR','Bihar','State',10],
+            ['CH','Chandigarh','Union Territory',10],
+            ['CG','Chhattisgarh','State',10],
+            ['DD','Dadra and Nagar Haveli and Daman and Diu','Union Territory',10],
+            ['DL','Delhi','Union Territory',10],
+            ['GA','Goa','State',10],
+            ['GJ','Gujarat','State',20],
+            ['HR','Haryana','State',10],
+            ['HP','Himachal Pradesh','State',10],
+            ['JK','Jammu and Kashmir','Union Territory',10],
+            ['JH','Jharkhand','State',10],
+            ['KA','Karnataka','State',10],
+            ['KL','Kerala','State',10],
+            ['LA','Ladakh','Union Territory',10],
+            ['LD','Lakshadweep','Union Territory',10],
+            ['MP','Madhya Pradesh','State',10],
+            ['MH','Maharashtra','State',30],
+            ['MN','Manipur','State',10],
+            ['ML','Meghalaya','State',10],
+            ['MZ','Mizoram','State',10],
+            ['NL','Nagaland','State',10],
+            ['OD','Odisha','State',10],
+            ['PY','Puducherry','Union Territory',10],
+            ['PB','Punjab','State',50],
+            ['RJ','Rajasthan','State',10],
+            ['SK','Sikkim','State',10],
+            ['TN','Tamil Nadu','State',10],
+            ['TS','Telangana','State',10],
+            ['TR','Tripura','State',10],
+            ['UP','Uttar Pradesh','State',10],
+            ['UK','Uttarakhand','State',10],
+            ['WB','West Bengal','State',10]
+        ].map(([code,name,type,fee]) => ({code,name,type,fee}));
+
+        const RTI_OFFICIAL_LINKS = {
+            centralPortal: 'https://rtionline.gov.in/',
+            dopt: 'https://rti.dopt.gov.in/',
+            cicStates: 'https://cic.gov.in/links-to-state-information-commissions'
+        };
+
+        function renderGuideTopics() {
+            const host = document.getElementById('guideTopics');
+            if (!host) return;
+            const items = RTI_INFO_L10N[langKey()] || RTI_INFO_L10N.en;
+            host.innerHTML = `
+                <div class="guide-section-head">
+                    <h2>📚 What information can you request?</h2>
+                    <p>These are general, illustrative examples of information and records that may be requested from public authorities.</p>
+                </div>
+                <div class="rti-info-grid">${items.map(item => `
+                    <div class="rti-info-item">
+                        <div class="icon">${item.icon}</div>
+                        <div><h3>${item.title}</h3><p>${item.desc}</p></div>
+                    </div>
+                `).join('')}</div>
+                <div class="guide-note">
+                    <strong>Examples are illustrative and non-exhaustive.</strong> The actual availability and disclosure of information depends on records held by the concerned public authority and applicable RTI exemptions.
+                </div>
+            `;
+        }
+
+        function renderStateGrid(filter = '') {
+            const grid = document.getElementById('stateGrid');
+            if (!grid) return;
+            const q = filter.trim().toLowerCase();
+            const items = RTI_JURISDICTIONS.filter(s =>
+                !q || s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q) || s.type.toLowerCase().includes(q)
+            );
+
+            grid.innerHTML = items.map(s => `
+                <button class="state-card" type="button" data-state-code="${s.code}">
+                    <span class="state-card-top">
+                        <span class="state-flag">🇮🇳</span>
+                        <span class="state-code">${s.code}</span>
+                    </span>
+                    <strong>${s.name}</strong>
+                    <span class="state-type">${s.type}</span>
+                    <span class="state-fee">Application fee: ₹${s.fee}</span>
+                    <span class="state-card-cta">View filing guide →</span>
+                </button>
+            `).join('') || `<div class="guide-empty">No State/UT found.</div>`;
+
+            grid.querySelectorAll('.state-card').forEach(btn => {
+                btn.addEventListener('click', () => showStateDetails(btn.dataset.stateCode));
+            });
+        }
+
+        function showStateDetails(code) {
+            const state = RTI_JURISDICTIONS.find(s => s.code === code);
+            const box = document.getElementById('stateDetails');
+            if (!state || !box) return;
+
+            box.style.display = 'block';
+            box.innerHTML = `
+                <div class="state-detail-header">
+                    <div>
+                        <span class="state-detail-kicker">${state.type} • Code ${state.code}</span>
+                        <h2>${state.name}</h2>
+                        <p>State/UT-specific RTI filing guidance</p>
+                    </div>
+                    <button class="btn btn-outline state-close-btn" type="button">Close</button>
+                </div>
+
+                <div class="state-detail-grid">
+                    <div class="detail-stat">
+                        <span>Application fee</span>
+                        <strong>₹${state.fee}</strong>
+                        <small>Configured prototype value*</small>
+                    </div>
+                    <div class="detail-stat">
+                        <span>Filing modes</span>
+                        <strong>Online / Offline</strong>
+                        <small>Availability depends on the authority</small>
+                    </div>
+                    <div class="detail-stat">
+                        <span>PIO route</span>
+                        <strong>Concerned PIO / APIO</strong>
+                        <small>Verify from the authority's official RTI information</small>
+                    </div>
+                </div>
+
+                <div class="guide-detail-columns">
+                    <div>
+                        <h3>📝 Before filing</h3>
+                        <ul>
+                            <li>Identify the correct department and Public Authority.</li>
+                            <li>Identify the appropriate PIO/APIO or designated filing route.</li>
+                            <li>Prepare clear requests for existing records/information.</li>
+                            <li>Check the current fee and permitted payment method.</li>
+                            <li>Keep BPL proof ready if you are claiming an applicable fee exemption.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3>📬 After filing</h3>
+                        <ul>
+                            <li>Save your acknowledgement or registration number.</li>
+                            <li>Keep a copy of the submitted RTI and payment proof.</li>
+                            <li>Track the response from the concerned authority.</li>
+                            <li>If required, use the applicable first-appeal process.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="official-resource-box">
+                    <h3>🔗 Official resources</h3>
+                    <div class="resource-links">
+                        <a class="official-link" href="${RTI_OFFICIAL_LINKS.dopt}" target="_blank" rel="noopener noreferrer">DoPT RTI Portal ↗</a>
+                        <a class="official-link" href="${RTI_OFFICIAL_LINKS.cicStates}" target="_blank" rel="noopener noreferrer">State Information Commission Directory ↗</a>
+                        ${state.type === 'Union Territory' ? '' : ''}
+                    </div>
+                    <p class="resource-help">Use the official State/UT authority website or RTI portal for the current PIO, filing address, payment mode and exact fee rules.</p>
+                </div>
+
+                <div class="guide-note warning">
+                    <strong>* Fee notice:</strong> ₹${state.fee} is the configured initial application fee supplied for this RTI Sahayak prototype. It is not a promise that no additional prescribed charges can apply. Verify before payment.
+                </div>
+            `;
+
+            const close = box.querySelector('.state-close-btn');
+            if (close) close.addEventListener('click', () => {
+                box.style.display = 'none';
+                box.innerHTML = '';
+            });
+            box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function pauseDemoVideo() {
+            const v = document.getElementById('demoVideo');
+            if (v && !v.paused) v.pause();
+        }
+
+        function initDemoVideo() {
+            const wrap = document.getElementById('demoVideoWrap');
+            const video = document.getElementById('demoVideo');
+            const dl = document.getElementById('demoDownloadBtn');
+            if (!wrap || !video) return;
+            const markMissing = () => {
+                wrap.classList.add('is-missing');
+                if (dl) dl.style.display = 'none';
+            };
+            video.addEventListener('error', markMissing);
+            const source = video.querySelector('source');
+            if (source) source.addEventListener('error', markMissing);
+            video.addEventListener('loadedmetadata', () => {
+                wrap.classList.remove('is-missing');
+                if (dl) dl.style.display = '';
+            });
+        }
+
+        function switchGuide(view) {
+            if (view !== 'demo') pauseDemoVideo();
+            document.querySelectorAll('.guide-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.guide === view);
+            });
+            document.querySelectorAll('.guide-view').forEach(panel => panel.classList.remove('active'));
+            const panel = document.getElementById('guide' + view.charAt(0).toUpperCase() + view.slice(1));
+            if (panel) panel.classList.add('active');
+        }
+
+        function initGuide() {
+            document.querySelectorAll('.guide-tab').forEach(tab => {
+                tab.addEventListener('click', () => switchGuide(tab.dataset.guide));
+            });
+            const search = document.getElementById('stateSearchInput');
+            if (search) search.addEventListener('input', e => renderStateGrid(e.target.value));
+            renderGuideTopics();
+            renderStateGrid();
+            initDemoVideo();
+        }
+
+        function renderRtiInfoGrid() {
+            renderGuideTopics();
+            renderStateGrid(document.getElementById('stateSearchInput')?.value || '');
+        }
+
+        // ---------- Navigation ----------
+        function goToStep(n) {
+            state.currentStep = n;
+            state.onRtiInfoPage = false;
+            state.onProfilePage = false;
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.getElementById('step' + n).classList.add('active');
+            document.getElementById('steptrail').style.display = '';
+            renderSteptrail();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function openRtiInfo(view) {
+            state.onRtiInfoPage = true;
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.getElementById('rtiInfoPage').classList.add('active');
+            document.getElementById('steptrail').style.display = 'none';
+            if (view) switchGuide(view);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function closeRtiInfo() {
+            pauseDemoVideo();
+            state.onRtiInfoPage = false;
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.getElementById('step1').classList.add('active');
+            document.getElementById('steptrail').style.display = '';
+            renderSteptrail();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function openProfilePage(returnStep) {
+            const p = getUserProfile() || {};
+            document.getElementById('login_name').value = p.name || '';
+            document.getElementById('login_address').value = p.address || '';
+            document.getElementById('login_mobile').value = p.mobile || '';
+            document.getElementById('login_email').value = p.email || '';
+            state.onProfilePage = true;
+            state.returnAfterProfile = returnStep || 1;
+            document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
+            document.getElementById('loginPage').classList.add('active');
+            document.getElementById('steptrail').style.display = 'none';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        document.getElementById('profileBtn').addEventListener('click', () => {
+            openProfilePage(state.currentStep || 1);
+        });
+
+        document.getElementById('profileBannerEditBtn').addEventListener('click', () => {
+            openProfilePage(2);
+        });
+
+        // ---------- Protocol warnings ----------
+        async function checkBrowserWarnings() {
+            const protocolWarning = document.getElementById('protocolWarning');
+            let warnings = [];
+            let usingBrave = false;
+            if (navigator.brave && typeof navigator.brave.isBrave === 'function') {
+                usingBrave = await navigator.brave.isBrave();
+            }
+            if (usingBrave) {
+                warnings.push(`<strong>⚠️ Brave Browser Voice Limitation:</strong> Brave disables the underlying Google Web Speech API for privacy reasons. Real-time voice transcription is not supported in Brave. Please use <strong>Google Chrome</strong>, <strong>Microsoft Edge</strong>, or <strong>Safari</strong> for voice input, or type your complaint below.`);
+            } else if (window.location.protocol === 'file:') {
+                warnings.push(`<strong>⚠️ Voice Input Limitation:</strong> Modern browsers restrict microphone access on local HTML files (<code>file://</code>). To use voice input:<ol style="margin: 6px 0 0; padding-left: 20px;"><li>Open your terminal in the folder containing this file.</li><li>Start a local server by running: <code>npx serve</code> or <code>python3 -m http.server 8000</code></li><li>Open <a href="http://localhost:3000" target="_blank" style="color: #9E6B00; font-weight: bold; text-decoration: underline;">http://localhost:3000</a> (or port 8000).</li></ol>`);
+            }
+            if (warnings.length > 0) {
+                protocolWarning.innerHTML = warnings.map(w => `<div class="protocol-warning">${w}</div>`).join('');
+                protocolWarning.style.display = 'block';
+            } else {
+                protocolWarning.style.display = 'none';
+            }
+        }
+        checkBrowserWarnings();
+
+        // ================================================================
+        //  STEP 1 — VOICE + TEXT + TEMPLATES
+        // ================================================================
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const micBtn = document.getElementById('micBtn');
+        const micRing = document.getElementById('micRing');
+        const micStatus = document.getElementById('micStatus');
+        const micTimer = document.getElementById('micTimer');
+        const liveTranscript = document.getElementById('liveTranscript');
+        const fallbackInput = document.getElementById('fallbackInput');
+
+        if (!SpeechRecognition) {
+            micStatus.textContent = t('micNoSupport');
+            micBtn.disabled = true;
+            micBtn.style.opacity = 0.45;
+        }
+
+        function startTimer() {
+            state.timerSeconds = 0;
+            micTimer.textContent = '0:00';
+            state.timerHandle = setInterval(() => {
+                state.timerSeconds++;
+                const m = Math.floor(state.timerSeconds / 60),
+                    s = state.timerSeconds % 60;
+                micTimer.textContent = m + ':' + String(s).padStart(2, '0');
+            }, 1000);
+        }
+
+        function stopTimer() { clearInterval(state.timerHandle); }
+        let recognitionEndedManually = true;
+
+        function startRecognitionSession(isRestart) {
+            const rec = new SpeechRecognition();
+            rec.lang = state.lang.code;
+            rec.continuous = false;
+            rec.interimResults = true;
+            state.recognition = rec;
+
+            if (!isRestart) {
+                state.finalTranscript = liveTranscript.textContent ? liveTranscript.textContent.trim() + ' ' : '';
+            }
+            let lastFinalPiece = '';
+
+            rec.onstart = () => {
+                state.recognizing = true;
+                micRing.classList.add('recording');
+                micStatus.textContent = t('micListening');
+                if (!isRestart) startTimer();
+            };
+            rec.onresult = (e) => {
+                let currentFinal = '';
+                let interim = '';
+                for (let i = e.resultIndex; i < e.results.length; i++) {
+                    const transcriptPiece = e.results[i][0].transcript;
+                    if (e.results[i].isFinal) {
+                        const trimmedPiece = transcriptPiece.trim();
+                        if (trimmedPiece && trimmedPiece.toLowerCase() !== lastFinalPiece.toLowerCase()) {
+                            currentFinal += transcriptPiece + ' ';
+                            lastFinalPiece = trimmedPiece;
+                        }
+                    } else {
+                        interim += transcriptPiece;
+                    }
+                }
+                if (currentFinal) state.finalTranscript += currentFinal;
+                liveTranscript.textContent = (state.finalTranscript + interim).trim();
+                fallbackInput.value = (state.finalTranscript + interim).trim();
+            };
+            rec.onerror = (e) => {
+                if (e.error === 'not-allowed') {
+                    micStatus.textContent = window.location.protocol === 'file:' ? t('micBlocked') : t('micDenied');
+                    recognitionEndedManually = true;
+                } else if (e.error === 'service-not-allowed' || e.error === 'network') {
+                    micStatus.textContent = t('micUnavailable');
+                    recognitionEndedManually = true;
+                } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+                    micStatus.textContent = t('micError');
+                }
+            };
+            rec.onend = () => {
+                state.finalTranscript = liveTranscript.textContent.trim() + ' ';
+                if (!recognitionEndedManually) {
+                    try { startRecognitionSession(true); } catch (_) {
+                        state.recognizing = false;
+                        micRing.classList.remove('recording');
+                        micStatus.textContent = t('micTap');
+                        stopTimer();
+                    }
+                } else {
+                    state.recognizing = false;
+                    micRing.classList.remove('recording');
+                    micStatus.textContent = t('micTap');
+                    stopTimer();
+                }
+            };
+            try { rec.start(); } catch (_) { micStatus.textContent = t('micFail'); }
+        }
+
+        micBtn.addEventListener('click', () => {
+            if (!SpeechRecognition) return;
+            if (state.recognizing) {
+                recognitionEndedManually = true;
+                state.recognition && state.recognition.stop();
+                return;
+            }
+            if (state.recognition) {
+                try { state.recognition.onresult = null; state.recognition.onend = null; state.recognition.onerror = null; state.recognition.abort(); } catch (_) {}
+                state.recognition = null;
+            }
+            recognitionEndedManually = false;
+            startRecognitionSession(false);
+        });
+
+        document.getElementById('tryAgainBtn').addEventListener('click', () => {
+            state.finalTranscript = '';
+            liveTranscript.textContent = '';
+            fallbackInput.value = '';
+            document.getElementById('step1Error').innerHTML = '';
+        });
+
+        // ---------- Template picker ----------
+        function startFromTemplate(tmpl, idx) {
+            document.getElementById('f_summary').value = tmpl.summary || '';
+            document.getElementById('f_department').value = tmpl.department || '';
+            document.getElementById('f_level').value = tmpl.level || 'Mandal';
+            document.getElementById('f_target').value = getTargetOfficer(tmpl.level || 'Mandal');
+            const qs = tmpl.questions || [];
+            document.getElementById('f_questions').value = qs.map((q, i) => (i + 1) + '. ' + q).join('\n');
+
+            state.originalComplaint = tmpl.summary || '';
+
+            populateApplicantFieldsFromProfile();
+
+            const clarArr = TEMPLATE_CLARIFICATIONS[langKey()] || TEMPLATE_CLARIFICATIONS.en;
+            const clarText = clarArr[idx] || clarArr[0];
+            document.getElementById('clarificationQuestionText').textContent = clarText;
+            document.getElementById('clarificationBox').style.display = 'block';
+            document.getElementById('clarificationConfirmBox').style.display = 'none';
+            document.getElementById('step2FieldsSection').style.display = 'block';
+            document.getElementById('clarificationAnswer').value = '';
+
+            goToStep(2);
+            document.getElementById('step2Body').style.display = 'block';
+            document.getElementById('step2Loading').style.display = 'none';
+            clearError('step2Error');
+            clearError('step1Error');
+        }
+
+        document.getElementById('readMoreRtiBtn').addEventListener('click', () => openRtiInfo('topics'));
+        document.getElementById('watchDemoBtn').addEventListener('click', () => openRtiInfo('demo'));
+        document.getElementById('rtiInfoBackBtn').addEventListener('click', closeRtiInfo);
+        document.getElementById('backTo1Btn').addEventListener('click', () => goToStep(1));
+        document.getElementById('backTo2Btn').addEventListener('click', () => goToStep(2));
+
+        // ---------- Login / profile page actions ----------
+        document.getElementById('loginContinueBtn').addEventListener('click', () => {
+            const profile = {
+                name: document.getElementById('login_name').value.trim(),
+                address: document.getElementById('login_address').value.trim(),
+                mobile: document.getElementById('login_mobile').value.trim(),
+                email: document.getElementById('login_email').value.trim()
+            };
+            saveUserProfile(profile);
+            const target = state.returnAfterProfile || 1;
+            document.getElementById('steptrail').style.display = '';
+            goToStep(target);
+            if (target === 2) populateApplicantFieldsFromProfile();
+        });
+
+        document.getElementById('loginSkipBtn').addEventListener('click', () => {
+            const target = state.returnAfterProfile || 1;
+            document.getElementById('steptrail').style.display = '';
+            goToStep(target);
+            if (target === 2) populateApplicantFieldsFromProfile();
+        });
+
+        // ================================================================
+        //  STEP 1 → STEP 2 — AI Analysis & Dynamic Heuristic Mappings
+        // ================================================================
+
+        document.getElementById('proceedBtn').addEventListener('click', async () => {
+            const complaint = (fallbackInput.value.trim() || state.finalTranscript.trim() || liveTranscript.textContent.trim());
+            clearError('step1Error');
+
+            if (!complaint) {
+                showError('step1Error', t('errNoComplaint'));
+                return;
+            }
+
+            const proceedBtnEl = document.getElementById('proceedBtn');
+            const guardResult = await resolveIntentGuard(complaint, proceedBtnEl);
+            if (guardResult.intent !== 'RTI_REQUEST' && guardResult.intent !== 'GOVERNMENT_SERVICE_REQUEST') {
+                handleNonRtiIntent(guardResult, complaint);
+                return;
+            }
+
+            state.originalComplaint = complaint;
+            await runIssueAnalysis(complaint);
+        });
+
+        // ---------- Abstracted core analysis engine ----------
+        async function runIssueAnalysis(complaintText) {
+            goToStep(2);
+            document.getElementById('step2Body').style.display = 'none';
+            document.getElementById('step2Loading').style.display = 'flex';
+            document.getElementById('clarificationBox').style.display = 'none';
+            document.getElementById('clarificationConfirmBox').style.display = 'none';
+            document.getElementById('step2FieldsSection').style.display = 'block';
+            clearError('step2Error');
+
+            document.getElementById('f_questions').value = '';
+            document.getElementById('f_summary').value = '';
+            document.getElementById('f_department').value = '';
+
+            populateApplicantFieldsFromProfile();
+
+            try {
+                const langPlain = langKey() === 'en' ? 'English' : (langKey() === 'hi' ? 'Hindi' : 'Telugu');
+                const savedProfileForPrompt = getUserProfile() || {};
+                const addressHint = savedProfileForPrompt.address
+                    ? `\nApplicant's saved address (use this for locality/street/ward context if the complaint text doesn't repeat it explicitly): "${savedProfileForPrompt.address}"`
+                    : '';
+
+                const prompt = `
+                    You are an expert, empathetic civic counselor assisting citizens with Right to Information (RTI) filings under the RTI Act, 2005.
+                    Analyze the citizen's complaint below and construct a structured JSON response.
+
+                    LANGUAGE RULE (STRICT): Every string value you write in this JSON ("summary", "non_rti_reason", "clarification_question") MUST be written ENTIRELY in ${langPlain} script — every word, including connecting words, transitions and formal phrases. Do not mix in English words or sentences except for proper nouns that have no native equivalent (e.g. a scheme's official English name, or a person's name). Do not respond partly in English and partly in ${langPlain}.
+
+                    EMPATHETIC THINKING & STRICT COGNITIVE LOGIC RULES:
+                    1. PRIVATE DISPUTES: Set is_rti to false. Write a compassionate explanation in ${langPlain}.
+                    2. STRICT RECORD-SEEKING QUESTIONS ONLY: The RTI Act is solely for requesting existing official records, not for asking "why", "when", or demanding action. Every question in the "questions" array MUST specifically ask for documents, records, certified copies, file notings, inspection reports, or registers. 
+                       - WRONG: "Why is my pension delayed?" or "When will the road be built?" or "What action is taken?"
+                       - CORRECT: "Please provide a certified copy of the file noting showing the current status..." or "Please provide a certified copy of the action taken report..." or "Please provide a certified copy of the work order and timeline..."
+                    3. MIXED ISSUES: Detect that these target separate departments. Set "confidence" below 85% and ask in "clarification_question" which one to focus on.
+                    4. EMOTIONAL / VERY VAGUE INPUTS: Set "confidence" to 40. Ask polite clarifying questions in ${langPlain}.
+                    5. SHORT FRAGMENT COGNITION: Set "confidence" to 50 and ask for missing data.
+                    6. SCHOOL ADMISSION REFUSAL: Recognize grievance, request records.
+                    7. EXTRACTING NUMBERS (ID Numbers, Ration, Pension ID, Caste Certificate Ref Numbers): Inject directly into "summary" and questions.
+                    8. LOCATION EXTRACTION: Include exact location phrase in "summary" AND repeat it inside EVERY item in "questions".
+                    9. NEUTRAL BACKGROUND WORDING: Rewrite into a neutral, factual statement of the current state.
+
+                    Respond ONLY with a valid JSON object matching this schema perfectly:
+                    {
+                      "is_rti": true,
+                      "non_rti_reason": "If is_rti is false, write a 2-3 sentence compassionate explanation in ${langPlain}.",
+                      "summary": "Formal, neutral summary written entirely in ${langPlain}.",
+                      "department": "Official department name handling this issue.",
+                      "level": "Village/Mandal/District/State/Central",
+                      "questions": ["Question 1", "Question 2", "Question 3", "Question 4"],
+                      "confidence": 85,
+                      "needs_clarification": false,
+                      "clarification_question": "Polite clarifying question entirely in ${langPlain} if details are missing."
+                    }
+
+                    Complaint: "${complaintText}"${addressHint}
+                `;
+
+                const resp = await fetchWithRetry(`${BACKEND_URL}/api/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt, temperature: 0.1, model: 'gemini-2.5-flash' })
+                });
+
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    throw new Error(`API error (${resp.status}): ${errText.substring(0, 200)}`);
+                }
+
+                const data = await resp.json();
+                let raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+                raw = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+                const start = raw.indexOf('{');
+                const end = raw.lastIndexOf('}');
+                if (start === -1 || end === -1) throw new Error('No JSON found in response');
+                raw = raw.substring(start, end + 1);
+                const parsed = JSON.parse(raw);
+
+                if (parsed.is_rti === false || parsed.confidence === 0) {
+                    document.getElementById('step2Loading').style.display = 'none';
+                    goToStep(1);
+                    document.getElementById('nonRtiExplanation').textContent = parsed.non_rti_reason || "This issue does not fall under the purview of the RTI Act, 2005. RTI is used to request records and information from public authorities, not for resolving private disputes or personal grievances.";
+                    document.getElementById('nonRtiModal').style.display = 'flex';
+                    return;
+                }
+
+                let confidence = Math.min(100, Math.max(10, parseInt(parsed.confidence) || 75));
+                if (confidence < 85 || parsed.needs_clarification === true || (parsed.clarification_question && parsed.clarification_question.trim() !== '')) {
+                    if (confidence >= 85) confidence = 75;
+
+                    document.getElementById('clarificationQuestionText').textContent = parsed.clarification_question || "Please provide more specific details about your issue (e.g. location, government department, card number) so we can construct a robust application.";
+                    document.getElementById('clarificationBox').style.display = 'block';
+                    document.getElementById('clarificationAnswer').value = '';
+                } else {
+                    document.getElementById('clarificationBox').style.display = 'none';
+                }
+
+                document.getElementById('f_summary').value = parsed.summary || complaintText;
+                document.getElementById('f_department').value = parsed.department || 'Public Information Officer';
+                const lvl = parsed.level || 'Mandal';
+                document.getElementById('f_level').value = lvl;
+                document.getElementById('f_target').value = getTargetOfficer(lvl);
+                const qs = Array.isArray(parsed.questions) ? parsed.questions : AUTHORITY_MAPPING.default.questions;
+                document.getElementById('f_questions').value = qs.map((q, i) => (i + 1) + '. ' + q).join('\n');
+
+                document.getElementById('step2Loading').style.display = 'none';
+                document.getElementById('step2Body').style.display = 'block';
+                return;
+            } catch (err) {
+                console.warn('AI analysis pipeline failed:', err);
+                showError('step2Error', `⚠️ ${friendlyApiErrorMessage()} Loaded offline fallback templates in the meantime.`);
+            }
+
+            // ---------- Fallback: Offline Keyword mapping with smart checks ----------
+            let isRtiFallback = true;
+            let matched = detectAuthorityFromText(complaintText);
+            let fallbackDept = matched ? matched.department : 'Public Works Department / Municipality';
+            let fallbackLevel = matched ? matched.level : 'Mandal';
+            let fallbackQuestions = matched && matched.questions ? matched.questions.slice() : AUTHORITY_MAPPING.default.questions.slice();
+            let summary = complaintText;
+            let calculatedConfidence = 70;
+            let clarificationPromptText = '';
+
+            const privateKeywords = ['private bank', 'dispute with neighbor', 'salary delay in private', 'family fight', 'divorce'];
+            const lowerComp = complaintText.toLowerCase();
+            if (privateKeywords.some(kw => lowerComp.includes(kw))) {
+                isRtiFallback = false;
+            }
+
+            if (!isRtiFallback) {
+                document.getElementById('step2Loading').style.display = 'none';
+                goToStep(1);
+                document.getElementById('nonRtiExplanation').textContent = "Based on offline keywords, this grievance appears to be a personal dispute or private enterprise matter. RTI Applications can only be filed to request records held by public government bodies.";
+                document.getElementById('nonRtiModal').style.display = 'flex';
+                return;
+            }
+
+            if (lowerComp.includes('road') && !lowerComp.includes('village') && !lowerComp.includes('at') && !lowerComp.includes('near')) {
+                calculatedConfidence = 65;
+                clarificationPromptText = "Which specific road or village location does this road construction problem concern?";
+            } else if (lowerComp.includes('pension') && !lowerComp.includes('state') && !lowerComp.includes('central') && !lowerComp.includes('old age') && !lowerComp.includes('widow')) {
+                calculatedConfidence = 65;
+                clarificationPromptText = "Is this a Central Government pension scheme (like EPFO) or a State Government pension welfare scheme?";
+            }
+
+            if (clarificationPromptText) {
+                document.getElementById('clarificationQuestionText').textContent = clarificationPromptText;
+                document.getElementById('clarificationBox').style.display = 'block';
+            }
+
+            const sentences = complaintText.split(/[.!?]+/).filter(s => s.trim().length > 10);
+            if (sentences.length > 0) {
+                summary = sentences.slice(0, 2).join('. ') + '.';
+            }
+            summary = neutralizeComplaintText(summary) || summary;
+            const profileForLocation = getUserProfile() || {};
+            const localityPhrase = profileForLocation.address ? profileForLocation.address.split(',').slice(0, 2).join(',').trim() : '';
+            if (localityPhrase) {
+                fallbackQuestions = fallbackQuestions.map(q => q.endsWith('?') ? q.slice(0, -1) + ` in the specified locality of ${localityPhrase}?` : q);
+            }
+
+            document.getElementById('f_summary').value = summary;
+            document.getElementById('f_department').value = fallbackDept;
+            document.getElementById('f_level').value = fallbackLevel;
+            document.getElementById('f_target').value = getTargetOfficer(fallbackLevel);
+            document.getElementById('f_questions').value = fallbackQuestions.map((q, i) => (i + 1) + '. ' + q).join('\n');
+
+            document.getElementById('step2Loading').style.display = 'none';
+            document.getElementById('step2Body').style.display = 'block';
+        }
+
+        function buildConfirmSummaryText() {
+            const summary = document.getElementById('f_summary').value.trim();
+            const dept = document.getElementById('f_department').value.trim();
+            const level = document.getElementById('f_level').value;
+            const target = document.getElementById('f_target').value.trim();
+            const questionsRaw = document.getElementById('f_questions').value.trim();
+            const L = I18N[langKey()] || I18N.en;
+            const levelLabel = (L.levels && L.levels[level]) || level;
+
+            const lines = [];
+            lines.push(t('labelSummaryPlain') + ': ' + summary);
+            lines.push(t('labelDepartmentPlain') + ': ' + dept + ' (' + levelLabel + ')');
+            lines.push(t('labelTarget') + ': ' + target);
+            lines.push(t('labelQuestionsPlain') + ':');
+            lines.push(questionsRaw);
+            return lines.join('\n');
+        }
+
+        function showClarificationConfirm() {
+            document.getElementById('clarificationBox').style.display = 'none';
+            document.getElementById('step2FieldsSection').style.display = 'none';
+            document.getElementById('confirmSummaryText').textContent = buildConfirmSummaryText();
+            clearError('confirmVoiceWarning');
+            document.getElementById('clarificationConfirmBox').style.display = 'block';
+        }
+
+        function hideClarificationConfirm() {
+            document.getElementById('clarificationConfirmBox').style.display = 'none';
+        }
+
+        document.getElementById('submitClarificationBtn').addEventListener('click', async () => {
+            const answer = document.getElementById('clarificationAnswer').value.trim();
+            if (!answer) return;
+
+            const expandedComplaintText = `Original Problem: ${state.originalComplaint}. Additional clarified details: ${answer}`;
+
+            const submitBtnEl = document.getElementById('submitClarificationBtn');
+            const guardResult = await resolveIntentGuard(expandedComplaintText, submitBtnEl);
+            if (guardResult.intent !== 'RTI_REQUEST'&& guardResult.intent !== 'GOVERNMENT_SERVICE_REQUEST') {
+                handleNonRtiIntent(guardResult, expandedComplaintText);
+                return;
+            }
+
+            state.originalComplaint = expandedComplaintText;
+            await runIssueAnalysis(expandedComplaintText);
+            showClarificationConfirm();
+        });
+
+        document.getElementById('confirmReadAloudBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('confirmReadAloudBtn');
+            if (state.confirmSpeaking) {
+                speechSynthesis.cancel();
+                state.confirmSpeaking = false;
+                btn.textContent = t('readAloud');
+                return;
+            }
+            const text = document.getElementById('confirmSummaryText').textContent;
+            clearError('confirmVoiceWarning');
+            state.confirmSpeaking = true;
+            btn.textContent = t('readAloudStop');
+            await speakWithWarning(text, state.lang.code, btn, () => {
+                state.confirmSpeaking = false;
+                btn.textContent = t('readAloud');
+            }, 'confirmVoiceWarning');
+        });
+
+        document.getElementById('confirmYesBtn').addEventListener('click', () => {
+            if (state.confirmSpeaking) { speechSynthesis.cancel(); state.confirmSpeaking = false; }
+            hideClarificationConfirm();
+            document.getElementById('clarificationBox').style.display = 'none';
+            document.getElementById('step2FieldsSection').style.display = 'block';
+        });
+
+        document.getElementById('confirmNoBtn').addEventListener('click', () => {
+            if (state.confirmSpeaking) { speechSynthesis.cancel(); state.confirmSpeaking = false; }
+            hideClarificationConfirm();
+            document.getElementById('clarificationQuestionText').textContent = t('clarificationAskAgain');
+            document.getElementById('clarificationAnswer').value = '';
+            document.getElementById('clarificationBox').style.display = 'block';
+            document.getElementById('step2FieldsSection').style.display = 'none';
+        });
+
+        document.getElementById('closeNonRtiModalBtn').addEventListener('click', () => {
+            document.getElementById('nonRtiModal').style.display = 'none';
+        });
+
+        // ================================================================
+        //  STEP 2 → STEP 3 — Generate Draft & Format Clean-up
+        // ================================================================
+
+        document.getElementById('genDraftBtn').addEventListener('click', async () => {
+            const summary = document.getElementById('f_summary').value.trim();
+            const department = document.getElementById('f_department').value.trim() || 'Public Information Officer';
+            const level = document.getElementById('f_level').value;
+            const targetOfficer = document.getElementById('f_target').value || getTargetOfficer(level);
+            const applicantName = document.getElementById('f_name').value.trim();
+            const applicantAddress = document.getElementById('f_address').value.trim();
+            const applicantMobile = document.getElementById('f_mobile').value.trim();
+            const applicantEmail = document.getElementById('f_email').value.trim();
+            const questionsRaw = document.getElementById('f_questions').value.trim();
+
+            clearError('step2Error');
+
+            if (!summary) {
+                showError('step2Error', t('errStep2Fields'));
+                return;
+            }
+            if (!questionsRaw) {
+                showError('step2Error', 'Please provide at least one question.');
+                return;
+            }
+
+            const questions = questionsRaw.split('\n').map(q => q.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
+            if (!questions.length) {
+                showError('step2Error', 'Please provide at least one question.');
+                return;
+            }
+
+            saveUserProfile({ name: applicantName, address: applicantAddress, mobile: applicantMobile, email: applicantEmail });
+
+            goToStep(3);
+            document.getElementById('step3Loading').style.display = 'flex';
+            document.getElementById('step3Body').style.display = 'none';
+            clearError('step3Error');
+
+            let usedAi = false;
+            let errorMsg = '';
+
+            try {
+                const langPlain = langKey() === 'en' ? 'English' : (langKey() === 'hi' ? 'Hindi' : 'Telugu');
+                const dict = FALLBACK_TEXTS[langKey()] || FALLBACK_TEXTS.en;
+                const prompt = `
+                    You are a legal assistant drafting a formal RTI application. Respond ONLY with a JSON object (no markdown, no formatting blocks) in this schema:
+                    {
+                      "draftText": "Complete application text with proper line breaks."
+                    }
+                    Use these details:
+                    To: ${targetOfficer}
+                    Department: ${department} (${level})
+                    Summary: ${summary}
+                    Questions: ${questions.map((q,i) => (i+1)+'. '+q).join(' ')}
+                    Applicant Name: ${applicantName || '(not provided — leave this value blank after the label)'}
+                    Applicant Address: ${applicantAddress || '(not provided — leave this value blank after the label)'}
+                    Applicant Mobile: ${applicantMobile || '(not provided — leave this value blank after the label)'}
+                    Applicant Email: ${applicantEmail || '(not provided — leave this value blank after the label)'}
+
+                    LANGUAGE RULE (STRICT — READ CAREFULLY):
+                    Write the ENTIRE "draftText" value completely in ${langPlain} script, with absolutely no mixing of English. This includes ALL of the following, which must use these EXACT ${langPlain} labels — do not translate them differently, do not leave them in English, and do not invent alternate wording:
+                    - "${dict.to}" (heading naming the officer)
+                    - "${dict.dept}" (department line)
+                    - "${dict.subject}"
+                    - "${dict.background}" (heading placed directly before the background paragraph) 
+                    - "${dict.requested}" (before the numbered questions)
+                    - Body request sentence, in the spirit of: "${dict.bodyRequest}"
+                    - "${dict.nameLabel}" followed by the applicant name value (or blank)
+                    - "${dict.addressLabel}" followed by the applicant address value (or blank)
+                    - "${dict.mobileLabel}" followed by the applicant mobile value (or blank)
+                    - "${dict.emailLabel}" followed by the applicant email value (or blank)
+                    - "${dict.signature}" (leave the underscore blank for hand signature)
+                    - "${dict.date}" (leave the underscore blank for hand-written date)
+                    The numbered questions themselves, and the summary, must also be written completely in ${langPlain} — translate them if the summary/questions given above are in English. Do not output any English sentence or English label anywhere in draftText except untranslatable proper nouns.
+                    Use a highly formal, authoritative tone appropriate for a government application in ${langPlain}.
+
+                    MANDATORY STRUCTURE : draftText must always contain, in this exact order: (1) the "${dict.to}" / "${dict.dept}" / "${dict.subject}" header lines, (2) the "${dict.background}" heading followed by a short 2-3 sentence background paragraph summarizing the factual context in neutral language, (3) the "${dict.requested}" heading followed by the numbered questions, (4) the closing request sentence, (5) applicant details, signature and date lines. Step (2) — the background paragraph — MUST appear in EVERY single draft with no exceptions, even if the summary is short.
+
+                    REWRITE RULE : The background paragraph in step (2) must NEVER reproduce the applicant's original wording verbatim if that wording contains a question, a demand for action, or phrases like "when will", "please fix", "please let me know". Always rewrite these into a neutral factual statement of the current state.
+                `;
+
+                const resp = await fetchWithRetry(`${BACKEND_URL}/api/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt, temperature: 0.1, model: 'gemini-2.5-flash' })
+                });
+
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    throw new Error(`API error (${resp.status}): ${errText.substring(0, 200)}`);
+                }
+
+                const data = await resp.json();
+                let raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+                raw = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+                const start = raw.indexOf('{');
+                const end = raw.lastIndexOf('}');
+                if (start === -1 || end === -1) throw new Error('No JSON found in response');
+                raw = raw.substring(start, end + 1);
+                const parsed = JSON.parse(raw);
+
+                let draftText = parsed.draftText || '';
+
+                draftText = fillApplicantField(draftText, [
+                    new RegExp(escapeRegex(dict.nameLabel) + '.*', 'g'),
+                    /Applicant Name:.*/gi, /आवेदक का नाम:.*/g, /అప్లికెంట్ పేరు:.*/g
+                ], applicantName);
+                draftText = fillApplicantField(draftText, [
+                    new RegExp(escapeRegex(dict.addressLabel) + '.*', 'g'),
+                    /Address:.*/gi, /पता:.*/g, /చిరునామా:.*/g
+                ], applicantAddress);
+                draftText = fillApplicantField(draftText, [
+                    new RegExp(escapeRegex(dict.mobileLabel) + '.*', 'g'),
+                    /Mobile:.*/gi, /मोबाइल:.*/g, /మొబైల్:.*/g
+                ], applicantMobile);
+                draftText = fillApplicantField(draftText, [
+                    new RegExp(escapeRegex(dict.emailLabel) + '.*', 'g'),
+                    /Email:.*/gi, /ईमेल:.*/g, /ఇమెయిల్:.*/g
+                ], applicantEmail);
+
+                state.draft = {
+                    draftText: draftText
+                };
+                usedAi = true;
+                renderDraft(state.draft, department, level);
+                return;
+            } catch (err) {
+                console.warn('Draft generation with AI failed:', err);
+                errorMsg = friendlyApiErrorMessage();
+            }
+
+            const fallbackDraft = buildFallbackDraft(summary, questions, department, level, targetOfficer, applicantName, applicantAddress, applicantMobile, applicantEmail);
+            state.draft = {
+                draftText: fallbackDraft
+            };
+            renderDraft(state.draft, department, level);
+            if (!usedAi) {
+                showError('step3Error', `⚠️ ${errorMsg} A legally compliant fallback document has been built for you to download, edit, or print below.`);
+            }
+        });
+
+        function escapeRegex(str) {
+            return (str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // ---------- Fallback draft builder ----------
+        function buildFallbackDraft(summary, questions, department, level, targetOfficer, name, address, mobile, email) {
+            const code = langKey();
+            const dict = FALLBACK_TEXTS[code] || FALLBACK_TEXTS.en;
+            const neutralSummary = neutralizeComplaintText(summary) || summary;
+            const lines = [];
+            lines.push(dict.to + ' ' + targetOfficer);
+            lines.push(dict.dept + ' ' + department + ' (' + level + ')');
+            lines.push(dict.subject);
+            lines.push('');
+            lines.push(dict.background);
+            lines.push(neutralSummary);
+            lines.push('');
+            lines.push(dict.requested);
+            questions.forEach((q, i) => lines.push((i + 1) + '. ' + q));
+            lines.push('');
+            lines.push(dict.bodyRequest);
+            lines.push('');
+            lines.push(dict.nameLabel + ' ' + (name || ''));
+            lines.push(dict.addressLabel + ' ' + (address || ''));
+            lines.push(dict.mobileLabel + ' ' + (mobile || ''));
+            lines.push(dict.emailLabel + ' ' + (email || ''));
+            lines.push(dict.signature);
+            lines.push(dict.date);
+            return lines.join('\n');
+        }
+
+        function fillApplicantField(text, patterns, value) {
+            if (!text) return text;
+            let out = text;
+            patterns.forEach(re => {
+                out = out.replace(re, (m) => {
+                    const idx = m.indexOf(':');
+                    const label = idx >= 0 ? m.substring(0, idx + 1) : m;
+                    return label + ' ' + (value || '');
+                });
+            });
+            return out;
+        }
+
+        // ---------- Render draft ----------
+        function renderDraft(json, department, level) {
+            document.getElementById('step3Loading').style.display = 'none';
+            document.getElementById('step3Body').style.display = 'block';
+            document.getElementById('draftText').textContent = json.draftText || '';
+            document.getElementById('docMeta').textContent = department + ' · ' + level;
+        }
+
+        // ================================================================
+        //  STEP 3 — ACTIONS
+        // ================================================================
+
+        document.getElementById('restartBtn').addEventListener('click', () => {
+            state.finalTranscript = '';
+            liveTranscript.textContent = '';
+            fallbackInput.value = '';
+            document.getElementById('f_summary').value = '';
+            document.getElementById('f_department').value = '';
+            document.getElementById('f_target').value = '';
+            document.getElementById('f_questions').value = '';
+            goToStep(1);
+        });
+
+        document.getElementById('copyBtn').addEventListener('click', async () => {
+            const text = document.getElementById('draftText').textContent;
+            try {
+                await navigator.clipboard.writeText(text);
+                flashLabel('copyBtn', t('copied'));
+            } catch (_) {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                flashLabel('copyBtn', t('copied'));
+            }
+        });
+
+        document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+        document.getElementById('shareBtn').addEventListener('click', async () => {
+            const text = document.getElementById('draftText').textContent;
+            if (navigator.share) {
+                try { await navigator.share({ title: 'RTI Application', text }); } catch (_) {}
+            } else {
+                await navigator.clipboard.writeText(text).catch(() => {});
+                flashLabel('shareBtn', t('shareCopied'));
+            }
+        });
+
+        document.getElementById('pdfBtn').addEventListener('click', async () => {
+            const el = document.getElementById('draftDocument');
+            flashLabel('pdfBtn', t('pdfPreparing'));
+            try {
+                const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+                const imgData = canvas.toDataURL('image/png');
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+                const pageWidth = pdf.internal.pageSize.getWidth();
+                const pageHeight = pdf.internal.pageSize.getHeight();
+                const margin = 24;
+                const imgWidth = pageWidth - margin * 2;
+                const imgHeight = canvas.height * imgWidth / canvas.width;
+                let heightLeft = imgHeight;
+                let position = margin;
+                pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
+                heightLeft -= (pageHeight - margin * 2);
+                while (heightLeft > 0) {
+                    position = margin - (imgHeight - heightLeft);
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight);
+                    heightLeft -= (pageHeight - margin * 2);
+                }
+                pdf.save('RTI_Application.pdf');
+            } catch (_) {
+                showError('step3Error', t('errPdf'));
+            }
+        });
+
+        document.getElementById('docBtn').addEventListener('click', () => {
+            const content = document.getElementById('draftDocument').innerHTML;
+            const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>RTI Application</title></head><body>${content}</body></html>`;
+            const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'RTI_Application.doc';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        document.getElementById('readAloudBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('readAloudBtn');
+            if (state.speaking) {
+                speechSynthesis.cancel();
+                state.speaking = false;
+                btn.textContent = t('readAloud');
+                return;
+            }
+            const text = document.getElementById('draftText').textContent;
+            clearError('step3VoiceWarning');
+            state.speaking = true;
+            btn.textContent = t('readAloudStop');
+            await speakWithWarning(text, state.lang.code, btn, () => {
+                state.speaking = false;
+                btn.textContent = t('readAloud');
+            }, 'step3VoiceWarning');
+        });
+
+        // ================================================================
+        //  INIT
+        // ================================================================
+
+        renderSteptrail();
+        renderTemplateGrid();
+        renderRtiInfoGrid();
+        initGuide();
+        applyLanguage();
+
+        if (hasSavedProfile()) {
+            document.getElementById('loginPage').classList.remove('active');
+            document.getElementById('step1').classList.add('active');
+            document.getElementById('steptrail').style.display = '';
+            state.currentStep = 1;
+            renderSteptrail();
+        } else {
+            document.getElementById('steptrail').style.display = 'none';
+        }
+
+        document.getElementById('f_level').addEventListener('change', function() {
+            document.getElementById('f_target').value = getTargetOfficer(this.value);
+        });
+
+        if ('speechSynthesis' in window) {
+            speechSynthesis.getVoices();
+        }
+
+        console.log('✅ RTI Sahayak Frontend Ready.');
+        console.log('🔗 Remember to update BACKEND_URL once deployed to Cloud Run.');
+    </script>
+</body>
+</html>

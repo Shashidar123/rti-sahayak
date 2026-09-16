@@ -1,0 +1,30 @@
+[
+  {
+    "title": "Road Construction Status",
+    "desc": "Sanctioned road work delayed or incomplete",
+    "department": "Public Works Department / Municipality",
+    "level": "Mandal",
+    "summary": "The road construction work sanctioned for our area has not been completed as per schedule.",
+    "questions": [
+      "What is the total sanctioned budget for this road work?",
+      "What is the official project completion date?",
+      "What amount has been released and utilised so far?",
+      "Who is the contractor/agency responsible for execution?",
+      "What is the current physical status of the work?"
+    ]
+  },
+  {
+    "title": "Pension Application Status",
+    "desc": "Old-age / widow / disability pension delay",
+    "department": "Social Welfare Department",
+    "level": "Mandal",
+    "summary": "My pension application has been pending for an unreasonably long time without any update.",
+    "questions": [
+      "On what date was my pension application received?",
+      "What is the current status of my application?",
+      "What are the reasons, if any, for the delay?",
+      "Which officer is responsible for clearing pending applications?",
+      "By what date is the pension expected to be sanctioned?"
+    ]
+  }
+]
