@@ -26,7 +26,7 @@ app.get('/', (req, res) => {
         service: 'RTI Sahayak Backend'
     });
 });
-
+console.log('RTI Sahayak routes loaded: / and /health');
 app.get('/health', (req, res) => {
     res.json({
         status: 'healthy'
