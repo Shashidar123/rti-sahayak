@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -672,6 +673,7 @@
                             <button class="btn btn-ghost" id="shareBtn">📤 Share</button>
                         </div>
                         <div id="step3VoiceWarning"></div>
+                        <div id="centralRtiNoteBox" class="ui" style="display:none;"></div>
                         <div class="row-actions">
                             <button class="btn btn-outline ui" id="backTo2Btn">← Edit details</button>
                             <button class="btn btn-primary ui" id="restartBtn">Generate another RTI</button>
@@ -788,7 +790,8 @@
                 confirmYesNoLabel: 'Is this correct? Would you like to proceed?',
                 confirmYes: 'Yes, proceed →', confirmNo: 'No, let me clarify again',
                 clarificationAskAgain: 'No problem — please share more details about your issue so we can refine the RTI draft further.',
-                voiceNotAvailable: 'A voice for this language was not found on your device/browser, so playback may skip or mispronounce some words.'
+                voiceNotAvailable: 'A voice for this language was not found on your device/browser, so playback may skip or mispronounce some words.',
+                centralRtiNote: 'Note: This request appears to concern a Central Government public authority. You may also file this application directly online through the Central RTI Online Portal:'
             },
             hi: {
                 brandSub: 'बोलें। दाखिल करें। जानने का अधिकार जानें।',
@@ -863,7 +866,8 @@
                 confirmYesNoLabel: 'क्या यह सही है? क्या आप आगे बढ़ना चाहते हैं?',
                 confirmYes: 'हाँ, आगे बढ़ें →', confirmNo: 'नहीं, मुझे फिर से स्पष्ट करने दें',
                 clarificationAskAgain: 'कोई बात नहीं — कृपया अपनी समस्या के बारे में और जानकारी साझा करें ताकि हम RTI मसूदे को और बेहतर बना सकें।',
-                voiceNotAvailable: 'आपके डिवाइस/ब्राउज़र पर इस भाषा की आवाज़ उपलब्ध नहीं है, इसलिए कुछ शब्द छूट सकते हैं या गलत उच्चारण हो सकता है।'
+                voiceNotAvailable: 'आपके डिवाइस/ब्राउज़र पर इस भाषा की आवाज़ उपलब्ध नहीं है, इसलिए कुछ शब्द छूट सकते हैं या गलत उच्चारण हो सकता है।',
+                centralRtiNote: 'नोट: यह अनुरोध केंद्र सरकार के सार्वजनिक प्राधिकरण से संबंधित प्रतीत होता है। आप इस आवेदन को केंद्रीय RTI ऑनलाइन पोर्टल के माध्यम से सीधे ऑनलाइन भी दाखिल कर सकते हैं:'
             },
             te: {
                 brandSub: 'మాట్లాడండి. దాఖలు చేయండి. తెలుసుకునే హక్కు తెలుసుకోండి.',
@@ -938,7 +942,8 @@
                 confirmYesNoLabel: 'ఇది సరైనదేనా? మీరు కొనసాగించాలనుకుంటున్నారా?',
                 confirmYes: 'అవును, కొనసాగించండి →', confirmNo: 'లేదు, మళ్ళీ స్పష్టం చేస్తాను',
                 clarificationAskAgain: 'పర్వాలేదు — మీ సమస్య గురించి మరింత వివరాలు తెలియజేయండి, తద్వారా మేము RTI మసూదాను మరింత మెరుగుపరచవచ్చు.',
-                voiceNotAvailable: 'మీ పరికరం/బ్రౌజర్‌లో ఈ భాషకు వాయిస్ దొరకలేదు, కాబట్టి కొన్ని పదాలు వినిపించకపోవచ్చు లేదా తప్పుగా ఉచ్చరించవచ్చు.'
+                voiceNotAvailable: 'మీ పరికరం/బ్రౌజర్‌లో ఈ భాషకు వాయిస్ దొరకలేదు, కాబట్టి కొన్ని పదాలు వినిపించకపోవచ్చు లేదా తప్పుగా ఉచ్చరించవచ్చు.',
+                centralRtiNote: 'గమనిక: ఈ అభ్యర్థన కేంద్ర ప్రభుత్వ ప్రజా సంస్థకు సంబంధించినట్లు కనిపిస్తోంది. మీరు ఈ దరఖాస్తును కేంద్ర RTI ఆన్‌లైన్ పోర్టల్ ద్వారా నేరుగా ఆన్‌లైన్‌లో కూడా దాఖలు చేయవచ్చు:'
             }
         };
 
@@ -989,6 +994,98 @@
                 .replace(/when will (it|they|this)\s+be\s+fixed\??/gi, '')
                 .replace(/\s{2,}/g, ' ')
                 .trim();
+        }
+
+        // ---------- TEXT / HTML / WORD EXPORT HELPERS ----------
+        function escapeHtml(str) {
+            return (str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function linkifyEscaped(escapedText) {
+            return escapedText.replace(/(https?:\/\/[^\s<]+)/g, (m) => {
+                const clean = m.replace(/[).,]+$/, '');
+                const trailing = m.slice(clean.length);
+                return `<a href="${clean}" target="_blank" rel="noopener noreferrer">${clean}</a>${trailing}`;
+            });
+        }
+
+        // Renders plain draft text (with \n line breaks) as safe HTML for on-screen display,
+        // turning any bare URL (e.g. the Central RTI portal link) into a clickable link.
+        function renderDraftHtml(draftText) {
+            const escaped = escapeHtml(draftText || '');
+            const linked = linkifyEscaped(escaped);
+            return linked.replace(/\n/g, '<br>');
+        }
+
+        // Builds a self-contained Word-compatible HTML document that preserves paragraph
+        // breaks and blank-line spacing exactly as shown in the draft (fixes DOCX alignment).
+        function buildWordDocument(draftText, metaLabel) {
+            const lines = (draftText || '').split('\n');
+            const bodyParagraphs = lines.map(line => {
+                const trimmed = line.trim();
+                if (!trimmed) return '<p style="margin:0 0 10pt 0;">&nbsp;</p>';
+                const linked = linkifyEscaped(escapeHtml(line));
+                return `<p style="margin:0 0 10pt 0;">${linked}</p>`;
+            }).join('\n');
+
+            return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>RTI Application</title>
+<!--[if gte mso 9]>
+<xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+<w:Zoom>100</w:Zoom>
+<w:DoNotOptimizeForBrowser/>
+</w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+@page Section1 {
+    size: 595.3pt 841.9pt;
+    margin: 72pt 62pt 72pt 62pt;
+    mso-header-margin: 36pt;
+    mso-footer-margin: 36pt;
+    mso-paper-source: 0;
+}
+div.Section1 { page: Section1; }
+body {
+    font-family: "Calibri", "Segoe UI", Arial, sans-serif;
+    font-size: 11.5pt;
+    line-height: 1.5;
+    color: #16213A;
+}
+p { margin: 0 0 10pt 0; }
+a { color: #0B3D62; }
+.doc-title {
+    font-size: 10pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1pt;
+    color: #B76A15;
+    margin-bottom: 4pt;
+}
+.doc-meta {
+    font-size: 9.5pt;
+    color: #5C6B7A;
+    margin-bottom: 14pt;
+    border-bottom: 1pt solid #E4DCC8;
+    padding-bottom: 8pt;
+}
+</style>
+</head>
+<body>
+<div class="Section1">
+<p class="doc-title">RTI Act, 2005 — Draft</p>
+<p class="doc-meta">${escapeHtml(metaLabel || '')}</p>
+${bodyParagraphs}
+</div>
+</body>
+</html>`;
         }
 
         // ---------- SPEECH SYNTHESIS VOICE HELPERS ----------
@@ -1160,7 +1257,7 @@
                 ]
             },
             pension: {
-                keywords: ['pension', 'old age pension', 'widow pension', 'disability pension', 'pension scheme', 'पेंशन', 'பென்ชั่న', 'పెన్షన్'],
+                keywords: ['pension', 'old age pension', 'widow pension', 'disability pension', 'pension scheme', 'पेंशन', 'பென்ชั่న்', 'పెన్షన్'],
                 department: 'Social Welfare Department / Pension Department',
                 level: 'Mandal',
                 questions: [
@@ -1215,6 +1312,11 @@
             }
         };
 
+        // Categories whose subject matter is tied to a physical, location-fixed asset
+        // (as opposed to an application/ID/scheme record). Only for these should the
+        // applicant's saved address ever be auto-inserted into the summary/questions.
+        const LOCATION_BASED_AUTHORITY_KEYS = ['streetlight', 'road', 'water'];
+
         function detectAuthorityFromText(text) {
             if (!text) return null;
             const lower = text.toLowerCase();
@@ -1223,7 +1325,7 @@
                 const item = AUTHORITY_MAPPING[key];
                 for (const kw of item.keywords) {
                     if (lower.includes(kw.toLowerCase())) {
-                        return item;
+                        return Object.assign({ _key: key }, item);
                     }
                 }
             }
@@ -1320,7 +1422,7 @@
                 'ఇది సాధారణ విద్యుత్ టెంప్లేట్. దయచేసి తెలియజేయండి: (1) ఇప్పటికే ఉన్న కనెక్షన్ కోసం మీ కన్జూమర్/సర్వీస్ నంబర్ లేదా అప్లికేషన్ సూచన సంఖ్య, మరియు (2) మీ ప్రాంతం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
                 'ఇది సాధారణ ఆసుపత్రి-సౌకర్యాల టెంప్లేట్. దయచేసి తెలియజేయండి: (1) ఆసుపత్రి ఖచ్చితమైన పేరు, మరియు (2) దాని స్థానం (గ్రామం/పట్టణం/జిల్లా) — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
                 'ఇది సాధారణ మునిసిపాలిటీ-ఫిర్యాదు టెంప్లేట్. దయచేసి తెలియజేయండి: (1) ఉంటే మీ ఫిర్యాదు సూచన సంఖ్య, మరియు (2) మీ వార్డు/ప్రాంతం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
-                'ఇది సాధారణ రెవెన్యూ-రికార్డుల టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ సర్వే నంబర్ / भूमि రికార్డు నంబర్, మరియు (2) మీ గ్రామం/మండలం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
+                'ఇది సాధారణ రెవెన్యూ-రికార్డుల టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ సర్వే నంబర్ / भूमి రికార్డు నంబర్, మరియు (2) మీ గ్రామం/మండలం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
                 'ఇది సాధారణ భూమి-సర్వే టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ సర్వే నంబర్, మరియు (2) మీ గ్రామం/మండలం పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.',
                 'ఇది సాధారణ MGNREGA టెంప్లేట్. దయచేసి తెలియజేయండి: (1) మీ జాబ్ కార్డ్ నంబర్, మరియు (2) మీ గ్రామం/పంచాయతీ పేరు — తద్వారా RTI మీ కేసుకు అనుగుణంగా రూపొందించవచ్చు.'
             ]
@@ -2218,7 +2320,7 @@
                 const langPlain = langKey() === 'en' ? 'English' : (langKey() === 'hi' ? 'Hindi' : 'Telugu');
                 const savedProfileForPrompt = getUserProfile() || {};
                 const addressHint = savedProfileForPrompt.address
-                    ? `\nApplicant's saved address (use this for locality/street/ward context if the complaint text doesn't repeat it explicitly): "${savedProfileForPrompt.address}"`
+                    ? `\nApplicant's saved address: "${savedProfileForPrompt.address}". ONLY use this address for locality/street/ward context — and only if the issue concerns a physical, location-fixed asset such as roads, street lighting, drainage, or water supply pipelines. Do NOT insert this address into the summary or questions for issues that are tracked by an application ID, card number, or scheme/account record rather than a fixed location — e.g. pensions, scholarships, ration cards, PMAY, land records, MGNREGA job cards, electricity connections, hospital facilities — unless the complainant explicitly mentioned this address themselves in their complaint text.`
                     : '';
 
                 const prompt = `
@@ -2229,15 +2331,16 @@
 
                     EMPATHETIC THINKING & STRICT COGNITIVE LOGIC RULES:
                     1. PRIVATE DISPUTES: Set is_rti to false. Write a compassionate explanation in ${langPlain}.
-                    2. STRICT RECORD-SEEKING QUESTIONS ONLY: The RTI Act is solely for requesting existing official records, not for asking "why", "when", or demanding action. Every question in the "questions" array MUST specifically ask for documents, records, certified copies, file notings, inspection reports, or registers. 
-                       - WRONG: "Why is my pension delayed?" or "When will the road be built?" or "What action is taken?"
-                       - CORRECT: "Please provide a certified copy of the file noting showing the current status..." or "Please provide a certified copy of the action taken report..." or "Please provide a certified copy of the work order and timeline..."
+                    2. STRICT RECORD-SEEKING QUESTIONS ONLY (MANDATORY): The RTI Act only allows requesting existing official records — it is never a channel for grievances, demands for action, or requests for an explanation. Every single item in "questions" MUST begin with a records-request phrase such as "Please provide a certified copy of..." and ask for a specific document, register, file noting, inspection report, sanction order, muster roll, or similar record.
+                       - BANNED phrasing (never use, and rewrite if the citizen used it): "Why...", "When will...", "Please fix...", "Please resolve...", "Please take action...", "Please let me know the status...", "What action has been taken...".
+                       - CORRECT pattern: "Please provide a certified copy of the file noting showing the current status..." or "Please provide a certified copy of the action taken report..." or "Please provide a certified copy of the work order and sanctioned timeline...".
+                       - Example rewrite: instead of "When will my pension be released?", write "Please provide a certified copy of the file noting recording the current status and expected date of release of my pension application."
                     3. MIXED ISSUES: Detect that these target separate departments. Set "confidence" below 85% and ask in "clarification_question" which one to focus on.
                     4. EMOTIONAL / VERY VAGUE INPUTS: Set "confidence" to 40. Ask polite clarifying questions in ${langPlain}.
                     5. SHORT FRAGMENT COGNITION: Set "confidence" to 50 and ask for missing data.
                     6. SCHOOL ADMISSION REFUSAL: Recognize grievance, request records.
                     7. EXTRACTING NUMBERS (ID Numbers, Ration, Pension ID, Caste Certificate Ref Numbers): Inject directly into "summary" and questions.
-                    8. LOCATION EXTRACTION: Include exact location phrase in "summary" AND repeat it inside EVERY item in "questions".
+                    8. LOCATION EXTRACTION: If the complaint text itself names a specific location (village/area/road/ward), include that exact location phrase in "summary" AND repeat it inside EVERY item in "questions". Only fall back to the applicant's saved address (see below, if provided) for issues tied to a physical, location-fixed asset (e.g. roads, street lighting, drainage, water supply) — never insert the applicant's saved address for issues that are tracked by an application/ID/card/account number rather than a location (e.g. pensions, scholarships, ration cards, PMAY, land records, MGNREGA, electricity connections, hospital facilities), unless the complainant explicitly gave that address themselves in the complaint text.
                     9. NEUTRAL BACKGROUND WORDING: Rewrite into a neutral, factual statement of the current state.
 
                     Respond ONLY with a valid JSON object matching this schema perfectly:
@@ -2354,8 +2457,16 @@
                 summary = sentences.slice(0, 2).join('. ') + '.';
             }
             summary = neutralizeComplaintText(summary) || summary;
+
+            // Only auto-insert the applicant's saved locality for issues tied to a
+            // physical, location-fixed asset (street lights, roads, water supply).
+            // Application/ID-based issues (pension, scholarship, ration, etc.) never
+            // get the address stitched in automatically.
+            const isLocationBasedIssue = !!(matched && LOCATION_BASED_AUTHORITY_KEYS.includes(matched._key));
             const profileForLocation = getUserProfile() || {};
-            const localityPhrase = profileForLocation.address ? profileForLocation.address.split(',').slice(0, 2).join(',').trim() : '';
+            const localityPhrase = (isLocationBasedIssue && profileForLocation.address)
+                ? profileForLocation.address.split(',').slice(0, 2).join(',').trim()
+                : '';
             if (localityPhrase) {
                 fallbackQuestions = fallbackQuestions.map(q => q.endsWith('?') ? q.slice(0, -1) + ` in the specified locality of ${localityPhrase}?` : q);
             }
@@ -2533,6 +2644,8 @@
                     The numbered questions themselves, and the summary, must also be written completely in ${langPlain} — translate them if the summary/questions given above are in English. Do not output any English sentence or English label anywhere in draftText except untranslatable proper nouns.
                     Use a highly formal, authoritative tone appropriate for a government application in ${langPlain}.
 
+                    STRICT QUESTION FORMAT (MANDATORY): Every numbered question in draftText MUST remain phrased as a request for an existing record/document (e.g. "certified copy of...", "file noting...", "inspection report...", "register...", "sanction order..."). NEVER phrase or rephrase a question as a grievance, demand for action, or "why/when" question. If a supplied question is not already phrased this way, rewrite it into a records-request form before including it.
+
                     MANDATORY STRUCTURE : draftText must always contain, in this exact order: (1) the "${dict.to}" / "${dict.dept}" / "${dict.subject}" header lines, (2) the "${dict.background}" heading followed by a short 2-3 sentence background paragraph summarizing the factual context in neutral language, (3) the "${dict.requested}" heading followed by the numbered questions, (4) the closing request sentence, (5) applicant details, signature and date lines. Step (2) — the background paragraph — MUST appear in EVERY single draft with no exceptions, even if the summary is short.
 
                     REWRITE RULE : The background paragraph in step (2) must NEVER reproduce the applicant's original wording verbatim if that wording contains a question, a demand for action, or phrases like "when will", "please fix", "please let me know". Always rewrite these into a neutral factual statement of the current state.
@@ -2579,7 +2692,8 @@
                 ], applicantEmail);
 
                 state.draft = {
-                    draftText: draftText
+                    draftText: draftText,
+                    level: level
                 };
                 usedAi = true;
                 renderDraft(state.draft, department, level);
@@ -2589,9 +2703,10 @@
                 errorMsg = friendlyApiErrorMessage();
             }
 
-            const fallbackDraft = buildFallbackDraft(summary, questions, department, level, targetOfficer, applicantName, applicantAddress, applicantMobile, applicantEmail);
+            let fallbackDraft = buildFallbackDraft(summary, questions, department, level, targetOfficer, applicantName, applicantAddress, applicantMobile, applicantEmail);
             state.draft = {
-                draftText: fallbackDraft
+                draftText: fallbackDraft,
+                level: level
             };
             renderDraft(state.draft, department, level);
             if (!usedAi) {
@@ -2643,12 +2758,28 @@
             return out;
         }
 
+        // ---------- Render Central RTI note (shown in the UI, not in the draft text) ----------
+        function renderCentralRtiNote(level) {
+            const box = document.getElementById('centralRtiNoteBox');
+            if (!box) return;
+            if (level === 'Central') {
+                const note = t('centralRtiNote');
+                const link = RTI_OFFICIAL_LINKS.centralPortal;
+                box.innerHTML = `<div class="guide-note">${escapeHtml(note)}<br><a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a></div>`;
+                box.style.display = 'block';
+            } else {
+                box.style.display = 'none';
+                box.innerHTML = '';
+            }
+        }
+
         // ---------- Render draft ----------
         function renderDraft(json, department, level) {
             document.getElementById('step3Loading').style.display = 'none';
             document.getElementById('step3Body').style.display = 'block';
-            document.getElementById('draftText').textContent = json.draftText || '';
+            document.getElementById('draftText').innerHTML = renderDraftHtml(json.draftText || '');
             document.getElementById('docMeta').textContent = department + ' · ' + level;
+            renderCentralRtiNote(level);
         }
 
         // ================================================================
@@ -2667,7 +2798,7 @@
         });
 
         document.getElementById('copyBtn').addEventListener('click', async () => {
-            const text = document.getElementById('draftText').textContent;
+            const text = (state.draft && state.draft.draftText) || document.getElementById('draftText').textContent;
             try {
                 await navigator.clipboard.writeText(text);
                 flashLabel('copyBtn', t('copied'));
@@ -2685,7 +2816,7 @@
         document.getElementById('printBtn').addEventListener('click', () => window.print());
 
         document.getElementById('shareBtn').addEventListener('click', async () => {
-            const text = document.getElementById('draftText').textContent;
+            const text = (state.draft && state.draft.draftText) || document.getElementById('draftText').textContent;
             if (navigator.share) {
                 try { await navigator.share({ title: 'RTI Application', text }); } catch (_) {}
             } else {
@@ -2724,8 +2855,9 @@
         });
 
         document.getElementById('docBtn').addEventListener('click', () => {
-            const content = document.getElementById('draftDocument').innerHTML;
-            const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>RTI Application</title></head><body>${content}</body></html>`;
+            const draftTextValue = (state.draft && state.draft.draftText) || document.getElementById('draftText').textContent;
+            const metaLabel = document.getElementById('docMeta').textContent;
+            const html = buildWordDocument(draftTextValue, metaLabel);
             const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -2745,7 +2877,7 @@
                 btn.textContent = t('readAloud');
                 return;
             }
-            const text = document.getElementById('draftText').textContent;
+            const text = (state.draft && state.draft.draftText) || document.getElementById('draftText').textContent;
             clearError('step3VoiceWarning');
             state.speaking = true;
             btn.textContent = t('readAloudStop');
