@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -323,6 +324,15 @@
             .state-detail-header { flex-direction: column; }
             .state-close-btn { align-self: flex-end; }
         }
+    
+        /* ---- Jurisdiction (Step 2) ---- */
+        .juris-banner { background: var(--blue-soft); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-weight: 700; color: var(--blue-deep); font-size: .88rem; line-height: 1.4; }
+        .juris-chips { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+        .juris-chip { flex: 1; min-width: 90px; padding: 10px 8px; border-radius: 10px; border: 2px solid var(--line); background: var(--white); font-weight: 700; font-family: inherit; font-size: .85rem; cursor: pointer; color: var(--muted); }
+        .juris-chip.active { border-color: var(--saffron); background: var(--saffron-soft); color: var(--blue-deep); }
+        .field-invalid { border-color: #c0392b !important; box-shadow: 0 0 0 2px rgba(192,57,43,.18); }
+        .check-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: .85rem; font-weight: 600; cursor: pointer; }
+        .check-row input { width: auto; margin: 0; }
     </style>
 </head>
 <body>
@@ -353,7 +363,7 @@
 
         <main>
             <!-- LOGIN / USER DETAILS PAGE -->
-            <section id="loginPage" class="panel active">
+            <section id="loginPage" class="panel">
                 <div class="card">
                     <div class="hero">
                         <h1 class="ui" id="loginTitle">Let's save your details — just once</h1>
@@ -505,7 +515,7 @@
             </section>
 
             <!-- STEP 1: INPUT -->
-            <section id="step1" class="panel">
+            <section id="step1" class="panel active">
                 <div class="card">
                     <div class="hero">
                         <h1 class="ui" id="step1Title">Speak your problem.<br>Generate an RTI instantly.</h1>
@@ -613,6 +623,18 @@
                                 <textarea id="f_summary" style="min-height:80px;"></textarea>
                                 <button class="btn btn-outline ui" id="refineGrammarBtn" type="button" style="margin-top:8px; padding:6px 12px; font-size:0.8rem; background: var(--blue-soft); border-color: var(--line);">✨ Polish Grammar & Align</button>
                                 <span id="refineGrammarStatus" style="font-size:0.78rem; font-weight:700; margin-left: 10px;"></span>
+                            </div>
+                            <div class="field-group" id="jurisGroup">
+                                <label class="ui" id="labelJuris">Jurisdiction</label>
+                                <div class="juris-banner ui" id="jurisBanner" role="status" aria-live="polite"></div>
+                                <div class="juris-chips ui" id="jurisChips">
+                                    <button type="button" class="juris-chip" data-j="Central"></button>
+                                    <button type="button" class="juris-chip" data-j="State"></button>
+                                    <button type="button" class="juris-chip" data-j="UT"></button>
+                                </div>
+                                <select id="f_state" style="margin-top:8px;"></select>
+                                <div class="hint ui" id="hintState"></div>
+                                <label class="check-row ui"><input type="checkbox" id="f_transfer" checked><span id="labelTransfer"></span></label>
                             </div>
                             <div class="field-group">
                                 <label class="ui" id="labelDepartment">Detected department <span style="font-weight:500;color:var(--muted);">(AI-mapped)</span></label>
@@ -1626,6 +1648,7 @@ ${bodyParagraphs}
             renderSteptrail();
             renderTemplateGrid();
             renderRtiInfoGrid();
+            try { populateStateSelect(state.juris, state.stateName); refreshJurisUi(); } catch (_) {}
         }
 
         function renderSteptrail() {
@@ -2129,13 +2152,55 @@ ${bodyParagraphs}
         }
 
         function stopTimer() { clearInterval(state.timerHandle); }
+        // ---- Voice reliability notes ----
+        // Likely causes of flaky dictation, and what handles each:
+        //  1. Browser mic/session timeout: Chrome ends a session after a few seconds of silence or ~60s total.
+        //     -> continuous mode (desktop), auto-restart with a short delay, and a silence watchdog.
+        //  2. Network lag: Chrome streams audio to Google's STT servers; 'network' errors are transient.
+        //     -> up to 2 retries with backoff, offline detection, clear message, typing fallback stays open.
+        //  3. STT accuracy: depends on lang code + mic quality (not fixable in code); we keep the chosen
+        //     language code and expose diagnostics in the console ([RTI voice]).
         let recognitionEndedManually = true;
+        const IS_ANDROID = /Android/i.test(navigator.userAgent);
+        const VOICE_SILENCE_LIMIT_MS = 20000;
+        let voiceNetworkRetries = 0, voiceLastActivity = 0, voiceWatchdog = null, voiceRestartTimer = null;
+
+        function voiceDiag(tag, detail) {
+            console.info('[RTI voice]', tag, detail || '', { lang: state.lang.code, online: navigator.onLine, continuous: !IS_ANDROID, retries: voiceNetworkRetries });
+        }
+        function stopVoiceWatchdog() { clearInterval(voiceWatchdog); voiceWatchdog = null; }
+        function startVoiceWatchdog() {
+            stopVoiceWatchdog();
+            voiceLastActivity = Date.now();
+            voiceWatchdog = setInterval(() => {
+                if (!recognitionEndedManually && Date.now() - voiceLastActivity > VOICE_SILENCE_LIMIT_MS) {
+                    voiceDiag('silence-timeout');
+                    endVoice('No speech heard — tap the mic and try again, or type below.');
+                }
+            }, 2000);
+        }
+        function endVoice(message) {
+            recognitionEndedManually = true;
+            clearTimeout(voiceRestartTimer);
+            stopVoiceWatchdog();
+            try { state.recognition && state.recognition.stop(); } catch (_) {}
+            if (message) setTimeout(() => { micStatus.textContent = message; }, 50);
+        }
+        function resetVoiceUi() {
+            state.recognizing = false;
+            micRing.classList.remove('recording');
+            micStatus.textContent = t('micTap');
+            stopTimer();
+            stopVoiceWatchdog();
+        }
 
         function startRecognitionSession(isRestart) {
             const rec = new SpeechRecognition();
             rec.lang = state.lang.code;
-            rec.continuous = false;
+            // Android Chrome duplicates words in continuous mode, so it uses single-shot sessions + auto-restart.
+            rec.continuous = !IS_ANDROID;
             rec.interimResults = true;
+            rec.maxAlternatives = 1;
             state.recognition = rec;
 
             if (!isRestart) {
@@ -2148,8 +2213,11 @@ ${bodyParagraphs}
                 micRing.classList.add('recording');
                 micStatus.textContent = t('micListening');
                 if (!isRestart) startTimer();
+                voiceDiag(isRestart ? 'restarted' : 'started');
             };
             rec.onresult = (e) => {
+                voiceLastActivity = Date.now();
+                voiceNetworkRetries = 0;
                 let currentFinal = '';
                 let interim = '';
                 for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -2169,47 +2237,68 @@ ${bodyParagraphs}
                 fallbackInput.value = (state.finalTranscript + interim).trim();
             };
             rec.onerror = (e) => {
+                voiceDiag('error', e.error);
                 if (e.error === 'not-allowed') {
                     micStatus.textContent = window.location.protocol === 'file:' ? t('micBlocked') : t('micDenied');
                     recognitionEndedManually = true;
-                } else if (e.error === 'service-not-allowed' || e.error === 'network') {
+                } else if (e.error === 'service-not-allowed') {
                     micStatus.textContent = t('micUnavailable');
                     recognitionEndedManually = true;
+                } else if (e.error === 'audio-capture') {
+                    micStatus.textContent = 'No microphone found. Plug one in or type below.';
+                    recognitionEndedManually = true;
+                } else if (e.error === 'network') {
+                    if (navigator.onLine && voiceNetworkRetries < 2) {
+                        voiceNetworkRetries++;
+                        micStatus.textContent = 'Connection slow — reconnecting…';   // onend will restart with backoff
+                    } else {
+                        micStatus.textContent = navigator.onLine
+                            ? 'Speech service is not responding. Please try again in a moment, or type below.'
+                            : 'You appear to be offline. Reconnect, or type below.';
+                        recognitionEndedManually = true;
+                    }
                 } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
                     micStatus.textContent = t('micError');
                 }
             };
             rec.onend = () => {
+                // Keep whatever was heard, including a last interim fragment that never finalised.
                 state.finalTranscript = liveTranscript.textContent.trim() + ' ';
                 if (!recognitionEndedManually) {
-                    try { startRecognitionSession(true); } catch (_) {
-                        state.recognizing = false;
-                        micRing.classList.remove('recording');
-                        micStatus.textContent = t('micTap');
-                        stopTimer();
-                    }
+                    const delay = voiceNetworkRetries > 0 ? 1000 * voiceNetworkRetries : 250;
+                    clearTimeout(voiceRestartTimer);
+                    voiceRestartTimer = setTimeout(() => {
+                        if (recognitionEndedManually) return;
+                        try { startRecognitionSession(true); } catch (_) { resetVoiceUi(); }
+                    }, delay);
                 } else {
-                    state.recognizing = false;
-                    micRing.classList.remove('recording');
-                    micStatus.textContent = t('micTap');
-                    stopTimer();
+                    resetVoiceUi();
                 }
             };
-            try { rec.start(); } catch (_) { micStatus.textContent = t('micFail'); }
+            try { rec.start(); } catch (_) { micStatus.textContent = t('micFail'); resetVoiceUi(); }
         }
+
+        window.addEventListener('offline', () => {
+            if (state.recognizing) endVoice('You went offline — dictation stopped. What you said so far is kept.');
+        });
 
         micBtn.addEventListener('click', () => {
             if (!SpeechRecognition) return;
             if (state.recognizing) {
-                recognitionEndedManually = true;
-                state.recognition && state.recognition.stop();
+                endVoice();
+                return;
+            }
+            if (!navigator.onLine) {
+                micStatus.textContent = 'You appear to be offline. Reconnect, or type below.';
                 return;
             }
             if (state.recognition) {
                 try { state.recognition.onresult = null; state.recognition.onend = null; state.recognition.onerror = null; state.recognition.abort(); } catch (_) {}
                 state.recognition = null;
             }
+            voiceNetworkRetries = 0;
             recognitionEndedManually = false;
+            startVoiceWatchdog();
             startRecognitionSession(false);
         });
 
@@ -2226,6 +2315,7 @@ ${bodyParagraphs}
             document.getElementById('f_department').value = tmpl.department || '';
             document.getElementById('f_level').value = tmpl.level || 'Mandal';
             document.getElementById('f_target').value = getTargetOfficer(tmpl.level || 'Mandal');
+            applyDetectedJurisdiction('', '', tmpl.level || 'Mandal', '');
             const qs = tmpl.questions || [];
             document.getElementById('f_questions').value = qs.map((q, i) => (i + 1) + '. ' + q).join('\n');
 
@@ -2301,6 +2391,218 @@ ${bodyParagraphs}
         });
 
         // ---------- Abstracted core analysis engine ----------
+        // ================================================================
+        //  JURISDICTION (Central / State / UT) + AUTO CLAUSES (fee, 6(3))
+        // ================================================================
+        const JURIS_TEXT = {
+            en: {
+                labelJuris: 'Jurisdiction (required — tap to correct)',
+                central: 'Central', state: 'State', ut: 'Union Territory',
+                bannerCentral: 'This appears to be a Central Government matter.',
+                bannerState: 'This appears to be a State Government matter',
+                bannerUT: 'This appears to be a Union Territory matter',
+                pickState: 'please select the State below', pickUT: 'please select the Union Territory below',
+                tapHint: 'Wrong? Tap another option below.',
+                stateOpt: '— Select State —', utOpt: '— Select Union Territory —',
+                transfer: 'Include Section 6(3) transfer request in the draft',
+                errState: 'Please select the State / Union Territory — it is required for the fee clause and the PIO details.',
+                apFee: 'Andhra Pradesh: fee mode shown as Court Fee Stamp — please confirm with the PIO / current AP RTI Rules before filing.',
+                otherFee: 'The fee mode differs by State. The draft will refer to the mode prescribed under that State\u2019s RTI Rules — confirm with the PIO.',
+                noteState: (s, k) => `Note: This request concerns ${s || 'a ' + k} (${k}). Find the PIO\u2019s name and address on the department\u2019s own website under \u201cRTI\u201d or \u201cRight to Information\u201d \u2014 every public authority must publish it under Section 4(1)(b) of the RTI Act, 2005. Confirm the fee mode with that office. Directory of State Information Commissions:`
+            },
+            hi: {
+                labelJuris: 'क्षेत्राधिकार (आवश्यक — गलत हो तो चुनें)',
+                central: 'केंद्र', state: 'राज्य', ut: 'केंद्र शासित प्रदेश',
+                bannerCentral: 'यह केंद्र सरकार का मामला प्रतीत होता है।',
+                bannerState: 'यह राज्य सरकार का मामला प्रतीत होता है',
+                bannerUT: 'यह केंद्र शासित प्रदेश का मामला प्रतीत होता है',
+                pickState: 'कृपया नीचे राज्य चुनें', pickUT: 'कृपया नीचे केंद्र शासित प्रदेश चुनें',
+                tapHint: 'गलत है? नीचे दूसरा विकल्प दबाएं।',
+                stateOpt: '— राज्य चुनें —', utOpt: '— केंद्र शासित प्रदेश चुनें —',
+                transfer: 'मसौदे में धारा 6(3) अंतरण अनुरोध शामिल करें',
+                errState: 'कृपया राज्य / केंद्र शासित प्रदेश चुनें — शुल्क खंड और PIO विवरण के लिए यह आवश्यक है।',
+                apFee: 'आंध्र प्रदेश: शुल्क का माध्यम कोर्ट फी स्टाम्प दिखाया गया है — दाखिल करने से पहले PIO / वर्तमान AP RTI नियमों से पुष्टि करें।',
+                otherFee: 'शुल्क का माध्यम राज्य के अनुसार अलग होता है। मसौदे में उस राज्य के RTI नियमों में निर्धारित माध्यम का उल्लेख होगा — PIO से पुष्टि करें।',
+                noteState: (s, k) => `नोट: यह अनुरोध ${s || k} (${k}) से संबंधित है। PIO का नाम और पता विभाग की अपनी वेबसाइट पर \u201cRTI\u201d या \u201cसूचना का अधिकार\u201d के अंतर्गत देखें \u2014 RTI अधिनियम, 2005 की धारा 4(1)(b) के तहत प्रत्येक सार्वजनिक प्राधिकरण को यह प्रकाशित करना आवश्यक है। शुल्क का माध्यम उसी कार्यालय से पुष्टि करें। राज्य सूचना आयोग निर्देशिका:`
+            },
+            te: {
+                labelJuris: 'అధికార పరిధి (తప్పనిసరి — తప్పైతే మార్చండి)',
+                central: 'కేంద్రం', state: 'రాష్ట్రం', ut: 'కేంద్రపాలిత ప్రాంతం',
+                bannerCentral: 'ఇది కేంద్ర ప్రభుత్వ అంశంగా కనిపిస్తోంది.',
+                bannerState: 'ఇది రాష్ట్ర ప్రభుత్వ అంశంగా కనిపిస్తోంది',
+                bannerUT: 'ఇది కేంద్రపాలిత ప్రాంత అంశంగా కనిపిస్తోంది',
+                pickState: 'దయచేసి కింద రాష్ట్రాన్ని ఎంచుకోండి', pickUT: 'దయచేసి కింద కేంద్రపాలిత ప్రాంతాన్ని ఎంచుకోండి',
+                tapHint: 'తప్పా? కింద మరో ఎంపికను నొక్కండి.',
+                stateOpt: '— రాష్ట్రాన్ని ఎంచుకోండి —', utOpt: '— కేంద్రపాలిత ప్రాంతాన్ని ఎంచుకోండి —',
+                transfer: 'డ్రాఫ్ట్‌లో సెక్షన్ 6(3) బదిలీ అభ్యర్థనను చేర్చండి',
+                errState: 'దయచేసి రాష్ట్రం / కేంద్రపాలిత ప్రాంతాన్ని ఎంచుకోండి — రుసుము క్లాజ్ మరియు PIO వివరాలకు ఇది అవసరం.',
+                apFee: 'ఆంధ్రప్రదేశ్: రుసుము విధానం కోర్ట్ ఫీ స్టాంప్‌గా చూపబడింది — దాఖలు చేసే ముందు PIO / ప్రస్తుత AP RTI నిబంధనలతో నిర్ధారించుకోండి.',
+                otherFee: 'రుసుము చెల్లింపు విధానం రాష్ట్రాన్ని బట్టి మారుతుంది. డ్రాఫ్ట్‌లో ఆ రాష్ట్ర RTI నిబంధనల ప్రకారం నిర్దేశించిన విధానం పేర్కొనబడుతుంది — PIOతో నిర్ధారించుకోండి.',
+                noteState: (s, k) => `గమనిక: ఈ అభ్యర్థన ${s || k} (${k}) కు సంబంధించినది. PIO పేరు మరియు చిరునామాను శాఖ అధికారిక వెబ్‌సైట్‌లో \u201cRTI\u201d లేదా \u201cసమాచార హక్కు\u201d విభాగంలో చూడండి \u2014 RTI చట్టం, 2005 లోని సెక్షన్ 4(1)(b) ప్రకారం ప్రతి ప్రజా సంస్థ దీన్ని ప్రచురించాలి. రుసుము విధానాన్ని ఆ కార్యాలయంతో నిర్ధారించుకోండి. రాష్ట్ర సమాచార కమిషన్ల డైరెక్టరీ:`
+            }
+        };
+        function JT() { return JURIS_TEXT[langKey()] || JURIS_TEXT.en; }
+
+        const RTI_CLAUSE_TEXT = {
+            en: {
+                mCentral: 'Indian Postal Order (IPO) / Demand Draft / online payment receipt',
+                mAP: 'Court Fee Stamp',
+                feeEnclosed: (f, m) => `I have enclosed/affixed ${m} of \u20B9${f} as the application fee. Kindly inform me of any additional charges.`,
+                feeGeneric: (f, s) => `I have paid the prescribed application fee of \u20B9${f} in the mode specified under the ${s} RTI Rules and have enclosed/affixed the proof of payment. Kindly inform me of any additional charges.`,
+                transfer: 'In case the information sought is not held by your office, kindly transfer this application to the concerned Public Information Officer under Section 6(3) of the RTI Act, 2005.',
+                jur: { Central: () => 'Jurisdiction: Central Government', State: s => `Jurisdiction: State Government \u2014 ${s}`, UT: s => `Jurisdiction: Union Territory \u2014 ${s}` }
+            },
+            hi: {
+                mCentral: 'भारतीय पोस्टल ऑर्डर (IPO) / डिमांड ड्राफ्ट / ऑनलाइन भुगतान की रसीद',
+                mAP: 'कोर्ट फी स्टाम्प',
+                feeEnclosed: (f, m) => `मैंने आवेदन शुल्क के रूप में \u20B9${f} का ${m} संलग्न/चिपकाया है। कृपया किसी भी अतिरिक्त शुल्क के बारे में मुझे सूचित करें।`,
+                feeGeneric: (f, s) => `मैंने ${s} RTI नियमों में निर्धारित माध्यम से \u20B9${f} का आवेदन शुल्क जमा किया है और भुगतान का प्रमाण संलग्न/चिपकाया है। कृपया किसी भी अतिरिक्त शुल्क के बारे में मुझे सूचित करें।`,
+                transfer: 'यदि मांगी गई जानकारी आपके कार्यालय के पास उपलब्ध नहीं है, तो कृपया RTI अधिनियम, 2005 की धारा 6(3) के अंतर्गत इस आवेदन को संबंधित लोक सूचना अधिकारी को अंतरित करें।',
+                jur: { Central: () => 'क्षेत्राधिकार: केंद्र सरकार', State: s => `क्षेत्राधिकार: राज्य सरकार \u2014 ${s}`, UT: s => `क्षेत्राधिकार: केंद्र शासित प्रदेश \u2014 ${s}` }
+            },
+            te: {
+                mCentral: 'ఇండియన్ పోస్టల్ ఆర్డర్ (IPO) / డిమాండ్ డ్రాఫ్ట్ / ఆన్‌లైన్ చెల్లింపు రసీదు',
+                mAP: 'కోర్ట్ ఫీ స్టాంప్',
+                feeEnclosed: (f, m) => `నేను దరఖాస్తు రుసుముగా \u20B9${f} విలువైన ${m} జతచేశాను/అతికించాను. ఏవైనా అదనపు ఛార్జీలు ఉంటే దయచేసి నాకు తెలియజేయండి.`,
+                feeGeneric: (f, s) => `నేను ${s} RTI నిబంధనల ప్రకారం నిర్దేశించిన విధానంలో \u20B9${f} దరఖాస్తు రుసుమును చెల్లించి, చెల్లింపు రుజువును జతచేశాను/అతికించాను. ఏవైనా అదనపు ఛార్జీలు ఉంటే దయచేసి నాకు తెలియజేయండి.`,
+                transfer: 'కోరిన సమాచారం మీ కార్యాలయం వద్ద లేనట్లయితే, దయచేసి RTI చట్టం, 2005 లోని సెక్షన్ 6(3) ప్రకారం ఈ దరఖాస్తును సంబంధిత పబ్లిక్ ఇన్ఫర్మేషన్ ఆఫీసర్‌కు బదిలీ చేయండి.',
+                jur: { Central: () => 'అధికార పరిధి: కేంద్ర ప్రభుత్వం', State: s => `అధికార పరిధి: రాష్ట్ర ప్రభుత్వం \u2014 ${s}`, UT: s => `అధికార పరిధి: కేంద్రపాలిత ప్రాంతం \u2014 ${s}` }
+            }
+        };
+
+        state.juris = 'State';
+        state.stateName = '';
+
+        function matchJurisdictionName(str) {
+            if (!str) return null;
+            const s = String(str).toLowerCase().trim();
+            if (!s) return null;
+            const exact = RTI_JURISDICTIONS.find(j => j.name.toLowerCase() === s);
+            if (exact) return exact;
+            // longest name first so "Andaman and Nicobar Islands" wins over shorter partial hits
+            const sorted = RTI_JURISDICTIONS.slice().sort((a, b) => b.name.length - a.name.length);
+            return sorted.find(j => s.includes(j.name.toLowerCase()) || (s.length > 3 && j.name.toLowerCase().includes(s))) || null;
+        }
+
+        function populateStateSelect(j, preferred) {
+            const sel = document.getElementById('f_state');
+            sel.classList.remove('field-invalid');
+            if (j === 'Central') { sel.style.display = 'none'; sel.innerHTML = ''; state.stateName = ''; return; }
+            const type = j === 'UT' ? 'Union Territory' : 'State';
+            const items = RTI_JURISDICTIONS.filter(x => x.type === type);
+            let keep = preferred && items.some(x => x.name === preferred) ? preferred : '';
+            if (!keep) {
+                try { const saved = localStorage.getItem('rti_state'); if (saved && items.some(x => x.name === saved)) keep = saved; } catch (_) {}
+            }
+            sel.innerHTML = `<option value="">${escapeHtml(j === 'UT' ? JT().utOpt : JT().stateOpt)}</option>` +
+                items.map(x => `<option value="${escapeHtml(x.name)}">${escapeHtml(x.name)}</option>`).join('');
+            sel.value = keep;
+            sel.style.display = '';
+            state.stateName = sel.value;
+        }
+
+        function refreshJurisUi() {
+            const L = JT();
+            const j = state.juris;
+            setTextSafe('labelJuris', L.labelJuris);
+            setTextSafe('labelTransfer', L.transfer);
+            document.querySelectorAll('#jurisChips .juris-chip').forEach(btn => {
+                const k = btn.dataset.j;
+                btn.textContent = k === 'Central' ? L.central : (k === 'State' ? L.state : L.ut);
+                btn.classList.toggle('active', k === j);
+            });
+            let banner;
+            if (j === 'Central') banner = L.bannerCentral;
+            else {
+                const base = j === 'UT' ? L.bannerUT : L.bannerState;
+                banner = base + ' \u2014 ' + (state.stateName || (j === 'UT' ? L.pickUT : L.pickState));
+            }
+            setTextSafe('jurisBanner', banner + ' ' + L.tapHint);
+            const hint = document.getElementById('hintState');
+            if (j === 'Central') hint.textContent = '';
+            else if (state.stateName === 'Andhra Pradesh') hint.textContent = L.apFee;
+            else hint.textContent = L.otherFee;
+            document.getElementById('f_state').style.display = j === 'Central' ? 'none' : '';
+        }
+        function setTextSafe(id, txt) { const el = document.getElementById(id); if (el) el.textContent = txt; }
+
+        function setJurisdiction(j, stateName) {
+            if (!['Central', 'State', 'UT'].includes(j)) j = 'State';
+            state.juris = j;
+            const lvl = document.getElementById('f_level');
+            if (j === 'Central') lvl.value = 'Central';
+            else if (lvl.value === 'Central') lvl.value = 'State';
+            document.getElementById('f_target').value = getTargetOfficer(lvl.value);
+            populateStateSelect(j, stateName || '');
+            refreshJurisUi();
+        }
+
+        // Combines the AI's classification with level + text hints; the user can still correct it with a tap.
+        function applyDetectedJurisdiction(aiJuris, aiState, level, complaintText) {
+            let j = String(aiJuris || '').toLowerCase();
+            if (j.startsWith('cent')) j = 'Central';
+            else if (j === 'ut' || j.startsWith('union')) j = 'UT';
+            else if (j.startsWith('state')) j = 'State';
+            else j = (level === 'Central') ? 'Central' : 'State';
+            let obj = matchJurisdictionName(aiState);
+            if (!obj && j !== 'Central') {
+                const prof = getUserProfile() || {};
+                // longest-name match against the complaint first, then the saved address
+                obj = RTI_JURISDICTIONS.slice().sort((a, b) => b.name.length - a.name.length)
+                    .find(x => (complaintText || '').toLowerCase().includes(x.name.toLowerCase())) ||
+                    RTI_JURISDICTIONS.slice().sort((a, b) => b.name.length - a.name.length)
+                    .find(x => (prof.address || '').toLowerCase().includes(x.name.toLowerCase())) || null;
+            }
+            if (obj && j !== 'Central') j = obj.type === 'Union Territory' ? 'UT' : 'State';
+            setJurisdiction(j, obj && j !== 'Central' ? obj.name : '');
+        }
+
+        function buildRtiClauses() {
+            const C = RTI_CLAUSE_TEXT[langKey()] || RTI_CLAUSE_TEXT.en;
+            const j = state.juris;
+            const st = document.getElementById('f_state').value;
+            const rec = RTI_JURISDICTIONS.find(x => x.name === st);
+            const fee = (j !== 'Central' && rec && rec.fee) ? rec.fee : 10;
+            let feeLine;
+            if (j === 'Central') feeLine = C.feeEnclosed(fee, C.mCentral);
+            else if (st === 'Andhra Pradesh') feeLine = C.feeEnclosed(fee, C.mAP);   // TODO: confirm AP fee mode
+            else feeLine = C.feeGeneric(fee, st);
+            const jurLine = j === 'Central' ? C.jur.Central() : (j === 'UT' ? C.jur.UT(st) : C.jur.State(st));
+            const transferLine = document.getElementById('f_transfer').checked ? C.transfer : '';
+            return { jurLine, feeLine, transferLine };
+        }
+
+        // Deterministic insertion so fee / 6(3) / state never depend on the AI following instructions.
+        function injectRtiClauses(draftText, dict) {
+            const { jurLine, feeLine, transferLine } = buildRtiClauses();
+            let lines = (draftText || '').split('\n');
+            const deptKey = (dict.dept || '').trim();
+            let di = deptKey ? lines.findIndex(l => l.trim().startsWith(deptKey)) : -1;
+            lines.splice(di >= 0 ? di + 1 : Math.min(1, lines.length), 0, jurLine);
+            const nameKey = (dict.nameLabel || '').trim();
+            let ni = nameKey ? lines.findIndex(l => l.trim().startsWith(nameKey)) : -1;
+            const block = [feeLine].concat(transferLine ? ['', transferLine] : []).concat(['']);
+            if (ni >= 0) lines.splice(ni, 0, ...block);
+            else lines = lines.concat([''], block);
+            return lines.join('\n');
+        }
+
+        document.querySelectorAll('#jurisChips .juris-chip').forEach(btn => {
+            btn.addEventListener('click', () => setJurisdiction(btn.dataset.j, ''));
+        });
+        document.getElementById('f_state').addEventListener('change', (e) => {
+            state.stateName = e.target.value;
+            e.target.classList.remove('field-invalid');
+            try { if (e.target.value) localStorage.setItem('rti_state', e.target.value); } catch (_) {}
+            refreshJurisUi();
+        });
+        document.getElementById('f_level').addEventListener('change', (e) => {
+            if (e.target.value === 'Central') setJurisdiction('Central', '');
+            else if (state.juris === 'Central') setJurisdiction('State', '');
+            else document.getElementById('f_target').value = getTargetOfficer(e.target.value);
+        });
+        setJurisdiction('State', '');
+
         async function runIssueAnalysis(complaintText) {
             goToStep(2);
             document.getElementById('step2Body').style.display = 'none';
@@ -2342,6 +2644,7 @@ ${bodyParagraphs}
                     7. EXTRACTING NUMBERS (ID Numbers, Ration, Pension ID, Caste Certificate Ref Numbers): Inject directly into "summary" and questions.
                     8. LOCATION EXTRACTION: If the complaint text itself names a specific location (village/area/road/ward), include that exact location phrase in "summary" AND repeat it inside EVERY item in "questions". Only fall back to the applicant's saved address (see below, if provided) for issues tied to a physical, location-fixed asset (e.g. roads, street lighting, drainage, water supply) — never insert the applicant's saved address for issues that are tracked by an application/ID/card/account number rather than a location (e.g. pensions, scholarships, ration cards, PMAY, land records, MGNREGA, electricity connections, hospital facilities), unless the complainant explicitly gave that address themselves in the complaint text.
                     9. NEUTRAL BACKGROUND WORDING: Rewrite into a neutral, factual statement of the current state.
+                    10. JURISDICTION (MANDATORY): Classify whose matter this is. "jurisdiction" must be exactly one of: "Central" (Union ministries/departments, Central PSUs, railways, income tax, passport, EPFO, CBSE, NHAI, UIDAI/Aadhaar, nationalised banks), "State" (state departments and local bodies such as police, state electricity boards, revenue/land records, state schools/hospitals, panchayats, municipalities, and state-run pension/ration/scholarship schemes — local bodies belong to their State), or "UT" (Union Territory administrations). "state" must be the full official English name of the State/UT: take it from the complaint text if it names or clearly implies one; otherwise from the applicant's saved address if one is provided (use the saved address ONLY to identify the State here); if neither tells you, use "". NEVER guess a State. If the matter could be Central or State (for example a generic "pension"), choose the most likely, lower "confidence" below 85 and ask in "clarification_question". The "jurisdiction" and "state" values are always written in English exactly as specified, regardless of the language rule above.
 
                     Respond ONLY with a valid JSON object matching this schema perfectly:
                     {
@@ -2350,6 +2653,8 @@ ${bodyParagraphs}
                       "summary": "Formal, neutral summary written entirely in ${langPlain}.",
                       "department": "Official department name handling this issue.",
                       "level": "Village/Mandal/District/State/Central",
+                      "jurisdiction": "Central | State | UT",
+                      "state": "Full English name of the State/UT, or empty string if unknown",
                       "questions": ["Question 1", "Question 2", "Question 3", "Question 4"],
                       "confidence": 85,
                       "needs_clarification": false,
@@ -2404,6 +2709,7 @@ ${bodyParagraphs}
                 const lvl = parsed.level || 'Mandal';
                 document.getElementById('f_level').value = lvl;
                 document.getElementById('f_target').value = getTargetOfficer(lvl);
+                applyDetectedJurisdiction(parsed.jurisdiction, parsed.state, lvl, complaintText);
                 const qs = Array.isArray(parsed.questions) ? parsed.questions : AUTHORITY_MAPPING.default.questions;
                 document.getElementById('f_questions').value = qs.map((q, i) => (i + 1) + '. ' + q).join('\n');
 
@@ -2475,6 +2781,7 @@ ${bodyParagraphs}
             document.getElementById('f_department').value = fallbackDept;
             document.getElementById('f_level').value = fallbackLevel;
             document.getElementById('f_target').value = getTargetOfficer(fallbackLevel);
+            applyDetectedJurisdiction('', '', fallbackLevel, complaintText);
             document.getElementById('f_questions').value = fallbackQuestions.map((q, i) => (i + 1) + '. ' + q).join('\n');
 
             document.getElementById('step2Loading').style.display = 'none';
@@ -2584,6 +2891,16 @@ ${bodyParagraphs}
 
             clearError('step2Error');
 
+            // State / UT is mandatory for non-Central applications (needed for fee clause + draft header)
+            const jurisNow = state.juris || 'State';
+            const stateSel = document.getElementById('f_state');
+            if (jurisNow !== 'Central' && !stateSel.value) {
+                stateSel.classList.add('field-invalid');
+                stateSel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                showError('step2Error', JT().errState);
+                return;
+            }
+
             if (!summary) {
                 showError('step2Error', t('errStep2Fields'));
                 return;
@@ -2620,6 +2937,7 @@ ${bodyParagraphs}
                     Use these details:
                     To: ${targetOfficer}
                     Department: ${department} (${level})
+                    Jurisdiction (context only): ${state.juris === 'Central' ? 'Central Government' : (state.juris === 'UT' ? 'Union Territory' : 'State Government') + ' — ' + document.getElementById('f_state').value}
                     Summary: ${summary}
                     Questions: ${questions.map((q,i) => (i+1)+'. '+q).join(' ')}
                     Applicant Name: ${applicantName || '(not provided — leave this value blank after the label)'}
@@ -2647,6 +2965,8 @@ ${bodyParagraphs}
                     STRICT QUESTION FORMAT (MANDATORY): Every numbered question in draftText MUST remain phrased as a request for an existing record/document (e.g. "certified copy of...", "file noting...", "inspection report...", "register...", "sanction order..."). NEVER phrase or rephrase a question as a grievance, demand for action, or "why/when" question. If a supplied question is not already phrased this way, rewrite it into a records-request form before including it.
 
                     MANDATORY STRUCTURE : draftText must always contain, in this exact order: (1) the "${dict.to}" / "${dict.dept}" / "${dict.subject}" header lines, (2) the "${dict.background}" heading followed by a short 2-3 sentence background paragraph summarizing the factual context in neutral language, (3) the "${dict.requested}" heading followed by the numbered questions, (4) the closing request sentence, (5) applicant details, signature and date lines. Step (2) — the background paragraph — MUST appear in EVERY single draft with no exceptions, even if the summary is short.
+
+                    AUTO-INSERTED LINES (IMPORTANT): The app automatically inserts the jurisdiction line, the application-fee payment sentence and the Section 6(3) transfer sentence into the draft after your output. Do NOT write any fee/payment sentence, any Section 6(3) / transfer sentence, or any jurisdiction line yourself, and do not mention court fee, IPO or demand draft.
 
                     REWRITE RULE : The background paragraph in step (2) must NEVER reproduce the applicant's original wording verbatim if that wording contains a question, a demand for action, or phrases like "when will", "please fix", "please let me know". Always rewrite these into a neutral factual statement of the current state.
                 `;
@@ -2691,6 +3011,7 @@ ${bodyParagraphs}
                     /Email:.*/gi, /ईमेल:.*/g, /ఇమెయిల్:.*/g
                 ], applicantEmail);
 
+                draftText = injectRtiClauses(draftText, dict);
                 state.draft = {
                     draftText: draftText,
                     level: level
@@ -2704,6 +3025,7 @@ ${bodyParagraphs}
             }
 
             let fallbackDraft = buildFallbackDraft(summary, questions, department, level, targetOfficer, applicantName, applicantAddress, applicantMobile, applicantEmail);
+            fallbackDraft = injectRtiClauses(fallbackDraft, FALLBACK_TEXTS[langKey()] || FALLBACK_TEXTS.en);
             state.draft = {
                 draftText: fallbackDraft,
                 level: level
@@ -2762,14 +3084,17 @@ ${bodyParagraphs}
         function renderCentralRtiNote(level) {
             const box = document.getElementById('centralRtiNoteBox');
             if (!box) return;
-            if (level === 'Central') {
+            if (level === 'Central' || state.juris === 'Central') {
                 const note = t('centralRtiNote');
                 const link = RTI_OFFICIAL_LINKS.centralPortal;
                 box.innerHTML = `<div class="guide-note">${escapeHtml(note)}<br><a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a></div>`;
                 box.style.display = 'block';
             } else {
-                box.style.display = 'none';
-                box.innerHTML = '';
+                // State / UT: PIO details come from the authority's own Section 4(1)(b) disclosure
+                const kind = state.juris === 'UT' ? JT().ut : JT().state;
+                const link = RTI_OFFICIAL_LINKS.cicStates;
+                box.innerHTML = `<div class="guide-note">${escapeHtml(JT().noteState(document.getElementById('f_state').value, kind))}<br><a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a></div>`;
+                box.style.display = 'block';
             }
         }
 
@@ -2897,15 +3222,11 @@ ${bodyParagraphs}
         initGuide();
         applyLanguage();
 
-        if (hasSavedProfile()) {
-            document.getElementById('loginPage').classList.remove('active');
-            document.getElementById('step1').classList.add('active');
-            document.getElementById('steptrail').style.display = '';
-            state.currentStep = 1;
-            renderSteptrail();
-        } else {
-            document.getElementById('steptrail').style.display = 'none';
-        }
+        document.getElementById('loginPage').classList.remove('active');
+        document.getElementById('step1').classList.add('active');
+        document.getElementById('steptrail').style.display = '';
+        state.currentStep = 1;
+        renderSteptrail();
 
         document.getElementById('f_level').addEventListener('change', function() {
             document.getElementById('f_target').value = getTargetOfficer(this.value);
